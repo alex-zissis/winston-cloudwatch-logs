@@ -7,10 +7,9 @@ const LIMITS = {
 // https://docs.aws.amazon.com/AmazonCloudWatchLogs/latest/APIReference/API_PutLogEvents.html
 const BASE_EVENT_SIZE_BYTES = 26;
 
-import {find} from 'lodash-es';
 import async from 'async';
 import {debug} from './utils.js';
-import {CloudWatchLogs, DescribeLogStreamsCommandOutput, PutLogEventsCommandOutput} from '@aws-sdk/client-cloudwatch-logs';
+import {CloudWatchLogs, DescribeLogStreamsCommandOutput, LogStream, PutLogEventsCommandOutput, PutRetentionPolicyCommandOutput} from '@aws-sdk/client-cloudwatch-logs';
 import {LogCallback, LogEntry} from 'winston';
 import {WinstonCloudWatchOptions} from '../WinstonCloudWatch.js';
 import {MessageTooBigError} from './errors/index.js';
@@ -59,7 +58,7 @@ interface ICloudWatch {
         args: Pick<CloudWatchArgumentsBase<boolean>, 'aws' | 'logGroupName' | 'retentionInDays' | 'cb'>
     ) => void;
     putRetentionPolicy: (args: Pick<CloudWatchArgumentsBase, 'aws' | 'logGroupName' | 'retentionInDays'>) => void;
-    getStream: (args: Pick<CloudWatchArgumentsBase, 'aws' | 'logGroupName' | 'logStreamName' | 'cb'>) => void;
+    getStream: (args: Pick<CloudWatchArgumentsBase<LogStream>, 'aws' | 'logGroupName' | 'logStreamName' | 'cb'>) => void;
 
     previousKeyMapKey: (logGroupName: string, logStreamName: string) => string;
     _postingEvents: object;
@@ -197,7 +196,7 @@ const CloudWatch: ICloudWatch = {
             options,
             cb: function (err, token) {
                 payload.sequenceToken = token;
-                aws.putLogEvents(payload, function (err) {
+                aws.putLogEvents(payload, function (err: any) {
                     CloudWatch._postingEvents[logStreamName] = false;
                     cb(err);
                 });
@@ -207,7 +206,7 @@ const CloudWatch: ICloudWatch = {
 
     retrySubmit: ({aws, payload, times, cb}) => {
         debug('retrying to upload', times, 'more times');
-        aws.putLogEvents(payload, function (err) {
+        aws.putLogEvents(payload, function (err: any) {
             if (err && times > 0) {
                 CloudWatch.retrySubmit({aws, payload, times: times - 1, cb});
             } else {
@@ -279,7 +278,7 @@ const CloudWatch: ICloudWatch = {
         };
         if (retentionInDays > 0) {
             debug('setting retention policy for "' + logGroupName + '" to ' + retentionInDays + ' days');
-            aws.putRetentionPolicy(params, function (err, data) {
+            aws.putRetentionPolicy(params, function (err: any, data: PutRetentionPolicyCommandOutput) {
                 if (err)
                     console.error(
                         'failed to set retention policy for ' +
@@ -299,11 +298,11 @@ const CloudWatch: ICloudWatch = {
             logStreamNamePrefix: logStreamName,
         };
 
-        aws.describeLogStreams(params, function (err, data) {
+        aws.describeLogStreams(params, function (err: any, data: DescribeLogStreamsCommandOutput) {
             debug('ensure stream present', err, data);
             if (err) return cb(err);
 
-            var stream = find(data.logStreams, function (stream) {
+            var stream = data.logStreams?.find(function (stream) {
                 return stream.logStreamName === logStreamName;
             });
 

@@ -3,7 +3,7 @@ import TransportStream from 'winston-transport';
 import {CloudWatchLogs, CloudWatchLogsClientConfig} from '@aws-sdk/client-cloudwatch-logs';
 import {NodeHttpHandler} from '@aws-sdk/node-http-handler';
 import ProxyAgent from 'proxy-agent';
-import {isEmpty, isError} from 'lodash-es';
+import {isEmpty, isError} from './lib/nodash/index.js';
 import {debug, stringify} from './lib/utils.js';
 import CloudWatch, {LogEvent, MessageFormatFunc} from './lib/cloudwatch.js';
 
