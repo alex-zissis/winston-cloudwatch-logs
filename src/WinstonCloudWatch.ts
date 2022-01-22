@@ -11,8 +11,8 @@ const DefaultFlushTimeoutMs = 10000;
 
 export interface WinstonCloudWatchOptions extends winston.transport.TransportStreamOptions {
     name?: string;
-    logGroupName: string;
-    logStreamName: string;
+    logGroupName: string | (() => string);
+    logStreamName: string | (() => string);
     retentionInDays?: number;
 
     awsAccessKeyId?: string;
