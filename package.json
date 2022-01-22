@@ -42,7 +42,6 @@
     "scripts": {
         "build": "rm -rf dist/* && tsc -p tsconfig.json && tsc -p tsconfig.cjs.json",
         "postbuild": "./postbuild",
-        "postinstall": "yarn build",
         "test": "mocha --loader=esmock test/*.spec.mjs"
     }
 }
