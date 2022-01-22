@@ -9,7 +9,13 @@ const BASE_EVENT_SIZE_BYTES = 26;
 
 import async from 'async';
 import {debug} from './utils.js';
-import {CloudWatchLogs, DescribeLogStreamsCommandOutput, LogStream, PutLogEventsCommandOutput, PutRetentionPolicyCommandOutput} from '@aws-sdk/client-cloudwatch-logs';
+import {
+    CloudWatchLogs,
+    DescribeLogStreamsCommandOutput,
+    LogStream,
+    PutLogEventsCommandOutput,
+    PutRetentionPolicyCommandOutput,
+} from '@aws-sdk/client-cloudwatch-logs';
 import {LogCallback, LogEntry} from 'winston';
 import {WinstonCloudWatchOptions} from '../WinstonCloudWatch.js';
 import {MessageTooBigError} from './errors/index.js';
@@ -55,10 +61,14 @@ interface ICloudWatch {
     submitWithAnotherToken: (args: CloudWatchArgumentsWithPayload) => void;
     retrySubmit: (args: CloudWatchSubmissionArgs) => void;
     ensureGroupPresent: (
-        args: Pick<CloudWatchArgumentsBase<boolean>, 'aws' | 'logGroupName' | 'retentionInDays' | 'cb'>
+        args: Pick<CloudWatchArgumentsBase<boolean>, 'aws' | 'logGroupName' | 'retentionInDays'>,
+        cb: (err?: any, data?: boolean) => void
     ) => void;
     putRetentionPolicy: (args: Pick<CloudWatchArgumentsBase, 'aws' | 'logGroupName' | 'retentionInDays'>) => void;
-    getStream: (args: Pick<CloudWatchArgumentsBase<LogStream>, 'aws' | 'logGroupName' | 'logStreamName' | 'cb'>) => void;
+    getStream: (
+        args: Pick<CloudWatchArgumentsBase<LogStream>, 'aws' | 'logGroupName' | 'logStreamName'>,
+        cb: (err?: any, stream?: LogStream) => void
+    ) => void;
 
     previousKeyMapKey: (logGroupName: string, logStreamName: string) => string;
     _postingEvents: object;
@@ -172,7 +182,7 @@ const CloudWatch: ICloudWatch = {
                             CloudWatch.retrySubmit({aws, payload, times: 3, cb});
                         }
                     } else {
-                        debug('data', data)
+                        debug('data', data);
                         if (data && data.nextSequenceToken) {
                             CloudWatch._nextToken[CloudWatch.previousKeyMapKey(logGroupName, logStreamName)] =
                                 data.nextSequenceToken;
@@ -227,10 +237,10 @@ const CloudWatch: ICloudWatch = {
         const calls =
             options.ensureLogGroup !== false
                 ? [
-                      CloudWatch.ensureGroupPresent.bind(null, {aws, logGroupName, retentionInDays, cb}),
-                      CloudWatch.getStream.bind(null, {aws, logGroupName, logStreamName, cb}),
+                      CloudWatch.ensureGroupPresent.bind(null, {aws, logGroupName, retentionInDays}, cb),
+                      CloudWatch.getStream.bind(null, {aws, logGroupName, logStreamName}, cb),
                   ]
-                : [CloudWatch.getStream.bind(null, {aws, logGroupName, logStreamName, cb})];
+                : [CloudWatch.getStream.bind(null, {aws, logGroupName, logStreamName}, cb)];
 
         async.series(calls, function (err, resources) {
             const groupPresent = calls.length > 1 ? resources[0] : true;
@@ -249,7 +259,7 @@ const CloudWatch: ICloudWatch = {
         return group + ':' + stream;
     },
 
-    ensureGroupPresent: ({aws, logGroupName, retentionInDays, cb}) => {
+    ensureGroupPresent: ({aws, logGroupName, retentionInDays}, cb) => {
         debug('ensure group present');
         const params = {logGroupName};
         aws.describeLogStreams(params, (err: any, data: DescribeLogStreamsCommandOutput) => {
@@ -264,7 +274,7 @@ const CloudWatch: ICloudWatch = {
                     })
                 );
             } else {
-                debug('group found')
+                debug('group found');
                 CloudWatch.putRetentionPolicy({aws, logGroupName, retentionInDays});
                 cb(err, true);
             }
@@ -292,7 +302,7 @@ const CloudWatch: ICloudWatch = {
         }
     },
 
-    getStream: ({aws, logGroupName, logStreamName, cb}) => {
+    getStream: ({aws, logGroupName, logStreamName}, cb) => {
         const params = {
             logGroupName,
             logStreamNamePrefix: logStreamName,
@@ -315,7 +325,7 @@ const CloudWatch: ICloudWatch = {
                     },
                     CloudWatch.ignoreInProgress(function (err) {
                         if (err) return cb(err);
-                        CloudWatch.getStream({aws, logGroupName, logStreamName, cb});
+                        CloudWatch.getStream({aws, logGroupName, logStreamName}, cb);
                     })
                 );
             } else {
