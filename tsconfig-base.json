@@ -1,0 +1,11 @@
+{
+    "compilerOptions": {
+        "lib": ["es2021"],
+        "allowSyntheticDefaultImports": true,
+        "moduleResolution": "node",
+        "outDir": "dist/",
+        "esModuleInterop": true,
+        "resolveJsonModule": true,
+        "typeRoots": ["./src/types", "./node_modules/@types"]
+    },
+}
