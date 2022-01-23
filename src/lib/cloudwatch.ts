@@ -164,7 +164,7 @@ const CloudWatch: ICloudWatch = {
             CloudWatch.aws
                 .putLogEvents(payload)
                 .then((data) => {
-                    debug('sent to CloudWatch.aws,', ' data: ', data, true);
+                    debug('sent to CloudWatch.aws,', ' data: ', data);
                     if (data && data.nextSequenceToken) {
                         CloudWatch._nextToken[CloudWatch._previousKeyMapKey(logGroupName, logStreamName)] =
                             data.nextSequenceToken;
