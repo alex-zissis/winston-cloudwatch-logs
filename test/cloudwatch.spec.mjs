@@ -1,6 +1,7 @@
 import lib from '../dist/mjs/lib/cloudwatch.js';
 import sinon from 'sinon';
 import should from 'should';
+import {LogStream} from '@aws-sdk/client-cloudwatch-logs';
 
 const ArgumentFactory = {
     upload(args = {}) {
@@ -318,10 +319,19 @@ describe('cloudwatch-integration', function () {
 
     describe('getToken', function () {
         var aws;
+        var ensureGroupPresent;
+        var getStream;
+
+        const streamResponse = {
+            arn: 'fakearn',
+            creationTime: Date.now(),
+            lastIngestionTime: Date.now(),
+            logStreamName: 'logStreamName',
+        };
 
         beforeEach(function () {
-            sinon.stub(lib, 'ensureGroupPresent').callsArgWith(1);
-            sinon.stub(lib, 'getStream').callsArgWith(1);
+            ensureGroupPresent = sinon.stub(lib, 'ensureGroupPresent');
+            getStream = sinon.stub(lib, 'getStream');
         });
 
         afterEach(function () {
@@ -330,6 +340,9 @@ describe('cloudwatch-integration', function () {
         });
 
         it('ensures group and stream are present if no nextToken for group/stream', function (done) {
+            ensureGroupPresent.resolves(true);
+            getStream.resolves(streamResponse);
+
             lib.getToken({
                 ...ArgumentFactory.getToken(),
                 aws,
@@ -337,18 +350,16 @@ describe('cloudwatch-integration', function () {
                     ensureGroupPresent: true,
                 },
                 cb: function () {
-                    lib.ensureGroupPresent.calledOnce.should.equal(true);
-                    lib.getStream.calledOnce.should.equal(true);
+                    ensureGroupPresent.calledOnce.should.equal(true);
+                    getStream.calledOnce.should.equal(true);
                     done();
                 },
             });
         });
 
         it('yields token when group and stream are present', function (done) {
-            lib.ensureGroupPresent.callsArgWith(1, null, true);
-            lib.getStream.callsArgWith(1, null, {
-                uploadSequenceToken: 'token',
-            });
+            ensureGroupPresent.resolves(true);
+            getStream.resolves({...streamResponse, uploadSequenceToken: 'token'});
             lib.getToken({
                 ...ArgumentFactory.getToken(),
                 aws,
@@ -364,24 +375,27 @@ describe('cloudwatch-integration', function () {
         });
 
         it('errors when ensuring group errors', function (done) {
-            lib.ensureGroupPresent.callsArgWith(1, 'err');
+            ensureGroupPresent.rejects('err');
+
             lib.getToken({
                 ...ArgumentFactory.getToken(),
                 aws,
                 cb: function (err) {
-                    err.should.equal('err');
+                    err.name.should.equal('err');
                     done();
                 },
             });
         });
 
         it('errors when ensuring stream errors', function (done) {
-            lib.getStream.callsArgWith(1, 'err');
+            ensureGroupPresent.resolves(true);
+            getStream.rejects('err');
+
             lib.getToken({
                 ...ArgumentFactory.getToken(),
                 aws,
                 cb: function (err) {
-                    err.should.equal('err');
+                    err.name.should.equal('err');
                     done();
                 },
             });
@@ -393,8 +407,8 @@ describe('cloudwatch-integration', function () {
                 ...ArgumentFactory.getToken(),
                 aws,
                 cb: function () {
-                    lib.ensureGroupPresent.notCalled.should.equal(true);
-                    lib.getStream.notCalled.should.equal(true);
+                    ensureGroupPresent.notCalled.should.equal(true);
+                    getStream.notCalled.should.equal(true);
                     done();
                 },
             });
@@ -403,77 +417,73 @@ describe('cloudwatch-integration', function () {
 
     describe('ensureGroupPresent', function () {
         var aws;
+        var putRetentionPolicy;
 
         beforeEach(function () {
             aws = {
-                describeLogStreams: function (params, cb) {
-                    cb(null, {});
+                describeLogStreams: async (params) => {
+                    return new Promise((resolve, reject) => resolve({}));
                 },
             };
-            lib.putRetentionPolicy = sinon.stub();
+            putRetentionPolicy = sinon.stub(lib, 'putRetentionPolicy');
         });
 
-        it('makes sure that a group is present', function (done) {
-            lib.ensureGroupPresent({
+        afterEach(function () {
+            putRetentionPolicy.restore();
+        });
+
+        it('makes sure that a group is present', async () => {
+            putRetentionPolicy.resolves();
+            const result = await lib.ensureGroupPresent({
                 ...ArgumentFactory.ensureGroupPresent(),
                 aws,
-                cb: function (err, isPresent) {
-                    should.not.exist(err);
-                    isPresent.should.equal(true);
-                    lib.putRetentionPolicy
-                        .calledWith({...ArgumentFactory.ensureGroupPresent(), aws})
-                        .should.equal(true);
-                    done();
-                },
             });
+            result.should.equal(true);
+            putRetentionPolicy.calledWith({...ArgumentFactory.ensureGroupPresent(), aws}).should.equal(true);
         });
 
-        it('creates a group if it is not present', function (done) {
+        it('creates a group if it is not present', async () => {
             var err = {name: 'ResourceNotFoundException'};
-            aws.describeLogStreams = sinon.stub().yields(err);
-            aws.createLogGroup = sinon.stub().yields(null);
+            aws.describeLogStreams = sinon.stub().rejects(err);
+            aws.createLogGroup = sinon.stub().resolves(true);
+            putRetentionPolicy.resolves();
 
-            lib.ensureGroupPresent({
+            const isPresent = await lib.ensureGroupPresent({
                 ...ArgumentFactory.ensureGroupPresent(),
                 aws,
-                cb: function (err, isPresent) {
-                    should.not.exist(err);
-                    lib.putRetentionPolicy
-                        .calledWith({logGroupName: 'group', retentionInDays: 0, aws})
-                        .should.equal(true);
-                    isPresent.should.equal(true);
-                    done();
-                },
             });
+
+            putRetentionPolicy.calledWith({logGroupName: 'group', retentionInDays: 0, aws}).should.equal(true);
+            isPresent.should.equal(true);
         });
 
-        it('errors if looking for a group errors', function (done) {
-            aws.describeLogStreams = sinon.stub().yields('err');
+        it('errors if looking for a group errors', (done) => {
+            aws.describeLogStreams = sinon.stub().rejects('err');
 
             lib.ensureGroupPresent({
                 ...ArgumentFactory.ensureGroupPresent(),
                 aws,
-                cb: function (err) {
-                    err.should.equal('err');
-                    done();
-                },
+            }).catch((e) => {
+                e.name.should.equal('err');
+                done();
             });
         });
 
         it('errors if creating a group errors', function (done) {
             var err = {name: 'ResourceNotFoundException'};
-            aws.describeLogStreams = sinon.stub().yields(err);
-            aws.createLogGroup = sinon.stub().yields('err');
+            putRetentionPolicy.resolves();
+            aws.describeLogStreams = sinon.stub().rejects(err);
+            aws.createLogGroup = sinon.stub().rejects('err');
 
             lib.ensureGroupPresent({
                 ...ArgumentFactory.ensureGroupPresent(),
                 aws,
-                cb: function (err) {
-                    err.should.equal('err');
-                    lib.putRetentionPolicy.calledOnce.should.equal(false);
+            })
+                .then((res) => console.log({res}))
+                .catch((err) => {
+                    err.name.should.equal('err');
                     done();
-                },
-            });
+                });
         });
     });
 
@@ -482,72 +492,63 @@ describe('cloudwatch-integration', function () {
 
         beforeEach(function () {
             aws = {
-                describeLogStreams: function (params, cb) {
-                    cb(null, {
-                        logStreams: [
-                            {
-                                logStreamName: 'stream',
-                            },
-                            {
-                                logStreamName: 'another-stream',
-                            },
-                        ],
-                    });
+                describeLogStreams: (params) => {
+                    return new Promise((resolve) =>
+                        resolve({
+                            logStreams: [
+                                {
+                                    logStreamName: 'stream',
+                                },
+                                {
+                                    logStreamName: 'another-stream',
+                                },
+                            ],
+                        })
+                    );
                 },
             };
         });
 
-        it('yields the stream we want', function (done) {
-            lib.getStream({
+        it('yields the stream we want', async () => {
+            const stream = await lib.getStream({
                 aws,
                 ...ArgumentFactory.getStream(),
-                cb: function (err, stream) {
-                    stream.logStreamName.should.equal('stream');
-                    done();
-                },
             });
+            stream.logStreamName.should.equal('stream');
         });
 
         it('errors if getting streams errors', function (done) {
-            aws.describeLogStreams = function (params, cb) {
-                cb('err');
-            };
+            aws.describeLogStreams = sinon.stub().rejects('err');
 
             lib.getStream({
                 aws,
                 ...ArgumentFactory.getStream(),
-                cb: function (err, stream) {
-                    should.not.exist(stream);
-                    err.should.equal('err');
-                    done();
-                },
+            }).catch((err) => {
+                err.name.should.equal('err');
+                done();
             });
         });
 
         it('errors if creating stream errors', function (done) {
-            aws.describeLogStreams = sinon.stub().yields(null, []);
-            aws.createLogStream = function (params, cb) {
-                cb('err');
-            };
+            aws.describeLogStreams = sinon.stub().resolves([]);
+            aws.createLogStream = () => new Promise((resolve, reject) => reject('err'));
 
             lib.getStream({
                 aws,
                 ...ArgumentFactory.getStream(),
-                cb: function (err, stream) {
-                    should.not.exist(stream);
-                    err.should.equal('err');
-                    done();
-                },
+            }).catch((err) => {
+                err.should.equal('err');
+                done();
             });
         });
 
         it('ignores in progress error (aborted)', function (done) {
-            aws.describeLogStreams = sinon.stub();
-            aws.describeLogStreams
+            aws.describeLogStreams = sinon
+                .stub()
                 .onCall(0)
-                .yields(null, [])
+                .resolves([])
                 .onCall(1)
-                .yields(null, {
+                .resolves({
                     logStreams: [
                         {
                             logStreamName: 'stream',
@@ -557,17 +558,16 @@ describe('cloudwatch-integration', function () {
                         },
                     ],
                 });
+
             var err = {name: 'OperationAbortedException'};
-            aws.createLogStream = sinon.stub().yields(err);
+            aws.createLogStream = sinon.stub().rejects(err);
 
             lib.getStream({
                 aws,
                 ...ArgumentFactory.getStream(),
-                cb: function (err, stream) {
-                    should.exist({logStreamName: 'stream'});
-                    should.not.exist(err);
-                    done();
-                },
+            }).then((res) => {
+                res.logStreamName.should.equal('stream');
+                done();
             });
         });
 
@@ -575,9 +575,9 @@ describe('cloudwatch-integration', function () {
             aws.describeLogStreams = sinon.stub();
             aws.describeLogStreams
                 .onCall(0)
-                .yields(null, [])
+                .resolves([])
                 .onCall(1)
-                .yields(null, {
+                .resolves({
                     logStreams: [
                         {
                             logStreamName: 'stream',
@@ -588,74 +588,33 @@ describe('cloudwatch-integration', function () {
                     ],
                 });
             var err = {name: 'ResourceAlreadyExistsException'};
-            aws.createLogStream = sinon.stub().yields(err);
+            aws.createLogStream = sinon.stub().rejects(err);
 
             lib.getStream({
                 aws,
                 ...ArgumentFactory.getStream(),
-                cb: function (err, stream) {
-                    should.exist({logStreamName: 'stream'});
-                    should.not.exist(err);
-                    done();
-                },
+            }).then((stream) => {
+                stream.logStreamName.should.equal('stream');
+                done();
             });
         });
     });
 
     describe('ignoreInProgress', function () {
-        it('can be used to filter callback errors', function (done) {
-            function typicalCallback(err, result) {
-                err.should.equal('err');
-                result.should.equal('result');
-                done();
-            }
-
-            var filter = lib.ignoreInProgress(typicalCallback);
-            filter.should.be.an.instanceOf(Function);
-            filter('err', 'result');
+        it('ignores a OperationAbortedException', function () {
+            var err = {name: 'OperationAbortedException'};
+            lib.ignoreInProgress(err).should.equal(true);
         });
 
-        it('ignores a OperationAbortedException', function (done) {
-            function runner(cb) {
-                var err = {name: 'OperationAbortedException'};
-                cb(err);
-            }
-
-            runner(
-                lib.ignoreInProgress(function (err) {
-                    should.not.exist(err);
-                    done();
-                })
-            );
+        it('ignores a ResourceAlreadyExistsException', function () {
+            var err = {name: 'ResourceAlreadyExistsException'};
+            lib.ignoreInProgress(err).should.equal(true);
         });
 
-        it('ignores a ResourceAlreadyExistsException', function (done) {
-            function runner(cb) {
-                var err = {name: 'ResourceAlreadyExistsException'};
-                cb(err);
-            }
-
-            runner(
-                lib.ignoreInProgress(function (err) {
-                    should.not.exist(err);
-                    done();
-                })
-            );
-        });
-
-        it('does not ignore any other error', function (done) {
-            function runner(cb) {
-                var err = {name: 'BoatTooLittleException'};
-                cb(err);
-            }
-
-            runner(
-                lib.ignoreInProgress(function (err) {
-                    should.exist(err);
-                    err.name.should.equal('BoatTooLittleException');
-                    done();
-                })
-            );
+        it('does not ignore any other error', function () {
+            var err = {name: 'BoatTooLittleException'};
+            lib.ignoreInProgress(err).should.equal(false);
+            lib.ignoreInProgress({name: 'otherErr'}).should.equal(false);
         });
     });
 

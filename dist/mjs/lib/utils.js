@@ -9,7 +9,15 @@ const handleErrorObject = (key, value) => {
     }
     return value;
 };
-const stringify = (o) => safeStringify(o, handleErrorObject, '  ');
+// const stringify = (o: object) => safeStringify(o, handleErrorObject, '  ');
+const stringify = (o) => {
+    try {
+        return JSON.stringify(o, handleErrorObject, '  ');
+    }
+    catch (e) {
+        return safeStringify(o, handleErrorObject, '  ');
+    }
+};
 const debug = (...args) => {
     if (!process.env.WINSTON_CLOUDWATCH_DEBUG)
         return;

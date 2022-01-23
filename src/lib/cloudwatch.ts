@@ -7,16 +7,9 @@ const LIMITS = {
 // https://docs.aws.amazon.com/AmazonCloudWatchLogs/latest/APIReference/API_PutLogEvents.html
 const BASE_EVENT_SIZE_BYTES = 26;
 
-import async from 'async';
 import {debug} from './utils.js';
-import {
-    CloudWatchLogs,
-    DescribeLogStreamsCommandOutput,
-    LogStream,
-    PutLogEventsCommandOutput,
-    PutRetentionPolicyCommandOutput,
-} from '@aws-sdk/client-cloudwatch-logs';
-import {LogCallback, LogEntry} from 'winston';
+import {CloudWatchLogs, LogStream, PutLogEventsCommandOutput} from '@aws-sdk/client-cloudwatch-logs';
+import {LogEntry} from 'winston';
 import {WinstonCloudWatchOptions} from '../WinstonCloudWatch.js';
 import {MessageTooBigError} from './errors/index.js';
 
@@ -57,24 +50,24 @@ interface CloudWatchSubmissionArgs extends Pick<CloudWatchArgumentsWithPayload, 
 interface ICloudWatch {
     upload: (args: CloudWatchUploadArgs) => void;
     safeUpload: (args: CloudWatchUploadArgs) => void;
-    getToken: (args: CloudWatchArgumentsBase) => void;
+    getToken: (args: CloudWatchArgumentsBase<string>) => void;
     submitWithAnotherToken: (args: CloudWatchArgumentsWithPayload) => void;
     retrySubmit: (args: CloudWatchSubmissionArgs) => void;
-    ensureGroupPresent: (
-        args: Pick<CloudWatchArgumentsBase<boolean>, 'aws' | 'logGroupName' | 'retentionInDays'>,
-        cb: (err?: any, data?: boolean) => void
-    ) => void;
-    putRetentionPolicy: (args: Pick<CloudWatchArgumentsBase, 'aws' | 'logGroupName' | 'retentionInDays'>) => void;
-    getStream: (
-        args: Pick<CloudWatchArgumentsBase<LogStream>, 'aws' | 'logGroupName' | 'logStreamName'>,
-        cb: (err?: any, stream?: LogStream) => void
-    ) => void;
 
     previousKeyMapKey: (logGroupName: string, logStreamName: string) => string;
     _postingEvents: object;
     _nextToken: object;
 
-    ignoreInProgress: (cb: LogCallback) => (err: Error, data: any) => void;
+    ensureGroupPresent: (
+        args: Pick<CloudWatchArgumentsBase<boolean>, 'aws' | 'logGroupName' | 'retentionInDays'>
+    ) => Promise<boolean>;
+    putRetentionPolicy: (
+        args: Pick<CloudWatchArgumentsBase<boolean>, 'aws' | 'logGroupName' | 'retentionInDays'>
+    ) => Promise<void>;
+    getStream: (
+        args: Pick<CloudWatchArgumentsBase<LogStream>, 'aws' | 'logGroupName' | 'logStreamName'>
+    ) => Promise<LogStream>;
+    ignoreInProgress: (err: Error) => boolean;
 }
 
 const CloudWatch: ICloudWatch = {
@@ -237,59 +230,53 @@ const CloudWatch: ICloudWatch = {
         const calls =
             options.ensureLogGroup !== false
                 ? [
-                      CloudWatch.ensureGroupPresent.bind(null, {aws, logGroupName, retentionInDays}, cb),
-                      CloudWatch.getStream.bind(null, {aws, logGroupName, logStreamName}, cb),
+                      CloudWatch.ensureGroupPresent({aws, logGroupName, retentionInDays}),
+                      CloudWatch.getStream({aws, logGroupName, logStreamName}),
                   ]
-                : [CloudWatch.getStream.bind(null, {aws, logGroupName, logStreamName}, cb)];
+                : [CloudWatch.getStream({aws, logGroupName, logStreamName})];
 
-        async.series(calls, function (err, resources) {
-            const groupPresent = calls.length > 1 ? resources[0] : true;
-            const stream: any = calls.length === 1 ? resources[0] : resources[1];
-            if (groupPresent && stream) {
+        Promise.all(calls)
+            .then((values) => {
+                const stream = (calls.length === 1 ? values[0] : values[1]) as LogStream;
                 debug('token found', stream.uploadSequenceToken);
-                cb(err, stream.uploadSequenceToken);
-            } else {
-                debug('token not found', err);
-                cb(err);
-            }
-        });
+                cb(null, stream.uploadSequenceToken);
+            })
+            .catch((e) => {
+                debug('token not found', e);
+                cb(e);
+            });
     },
 
     previousKeyMapKey: (group, stream) => {
         return group + ':' + stream;
     },
 
-    ensureGroupPresent: ({aws, logGroupName, retentionInDays}, cb) => {
-        debug('ensure group present');
-        const params = {logGroupName};
-        aws.describeLogStreams(params, (err: any, data: DescribeLogStreamsCommandOutput) => {
-            // TODO we should cb(err, false) if there's an error?
-            if (err && err.name == 'ResourceNotFoundException') {
-                debug('create group');
-                return aws.createLogGroup(
-                    params,
-                    CloudWatch.ignoreInProgress(function (err) {
-                        if (!err) CloudWatch.putRetentionPolicy({aws, logGroupName, retentionInDays});
-                        cb(err, err ? false : true);
-                    })
-                );
-            } else {
-                debug('group found');
-                CloudWatch.putRetentionPolicy({aws, logGroupName, retentionInDays});
-                cb(err, true);
-            }
+    ensureGroupPresent: async ({aws, logGroupName, retentionInDays}) => {
+        return new Promise(async (resolve, reject) => {
+            await aws.describeLogStreams({logGroupName}).catch(async (e) => {
+                if (e.name === 'ResourceNotFoundException') {
+                    aws.createLogGroup({logGroupName})
+                        .then(() => {
+                            CloudWatch.putRetentionPolicy({aws, logGroupName, retentionInDays})
+                                .then(() => resolve(true))
+                                .catch(reject);
+                        })
+                        .catch(reject);
+                } else {
+                    reject(e);
+                }
+            });
+            CloudWatch.putRetentionPolicy({aws, logGroupName, retentionInDays})
+                .then(() => resolve(true))
+                .catch(reject);
         });
     },
 
-    putRetentionPolicy: ({aws, logGroupName, retentionInDays}) => {
-        const params = {
-            logGroupName,
-            retentionInDays,
-        };
+    putRetentionPolicy: async ({aws, logGroupName, retentionInDays}) => {
         if (retentionInDays > 0) {
-            debug('setting retention policy for "' + logGroupName + '" to ' + retentionInDays + ' days');
-            aws.putRetentionPolicy(params, function (err: any, data: PutRetentionPolicyCommandOutput) {
-                if (err)
+            await aws
+                .putRetentionPolicy({logGroupName, retentionInDays})
+                .catch((err: Error) =>
                     console.error(
                         'failed to set retention policy for ' +
                             logGroupName +
@@ -297,52 +284,53 @@ const CloudWatch: ICloudWatch = {
                             retentionInDays +
                             ' days due to ' +
                             err.stack
-                    );
-            });
+                    )
+                );
         }
     },
 
-    getStream: ({aws, logGroupName, logStreamName}, cb) => {
-        const params = {
-            logGroupName,
-            logStreamNamePrefix: logStreamName,
-        };
+    getStream: ({aws, logGroupName, logStreamName}) => {
+        return new Promise(async (resolve, reject) => {
+            const params = {
+                logGroupName,
+                logStreamNamePrefix: logStreamName,
+            };
 
-        aws.describeLogStreams(params, function (err: any, data: DescribeLogStreamsCommandOutput) {
-            debug('ensure stream present', err, data);
-            if (err) return cb(err);
+            aws.describeLogStreams(params)
+                .then(async (response) => {
+                    let stream = response.logStreams?.find((stream) => stream.logStreamName === logStreamName);
+                    if (!stream) {
+                        debug('creating stream');
+                        let shouldResolve = true;
+                        await aws.createLogStream({logGroupName, logStreamName}).catch((e) => {
+                            if (!CloudWatch.ignoreInProgress(e)) {
+                                shouldResolve = false;
+                                reject(e);
+                            }
+                        });
 
-            var stream = data.logStreams?.find(function (stream) {
-                return stream.logStreamName === logStreamName;
-            });
-
-            if (!stream) {
-                debug('create stream');
-                aws.createLogStream(
-                    {
-                        logGroupName,
-                        logStreamName,
-                    },
-                    CloudWatch.ignoreInProgress(function (err) {
-                        if (err) return cb(err);
-                        CloudWatch.getStream({aws, logGroupName, logStreamName}, cb);
-                    })
-                );
-            } else {
-                cb(null, stream);
-            }
+                        if (shouldResolve) {
+                            CloudWatch.getStream({aws, logGroupName, logStreamName})
+                                .then((response) => {
+                                    resolve(response);
+                                })
+                                .catch((e) => reject(e));
+                        }
+                    } else {
+                        resolve(stream);
+                    }
+                })
+                .catch(reject);
         });
     },
 
-    ignoreInProgress: (cb) => {
-        return function (err, data) {
-            if (err && (err.name == 'OperationAbortedException' || err.name == 'ResourceAlreadyExistsException')) {
-                debug('ignore operation in progress', err.message);
-                cb(null, data);
-            } else {
-                cb(err, data);
-            }
-        };
+    ignoreInProgress: (err: Error) => {
+        if (err.name == 'OperationAbortedException' || err.name == 'ResourceAlreadyExistsException') {
+            debug('ignore operation in progress', err.message);
+            return true;
+        }
+
+        return false;
     },
 };
 

@@ -1,6 +1,12 @@
 "use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const LIMITS = {
@@ -10,7 +16,6 @@ const LIMITS = {
 // CloudWatch adds 26 bytes per log event based on their documentation:
 // https://docs.aws.amazon.com/AmazonCloudWatchLogs/latest/APIReference/API_PutLogEvents.html
 const BASE_EVENT_SIZE_BYTES = 26;
-const async_1 = __importDefault(require("async"));
 const utils_js_1 = require("./utils.js");
 const index_js_1 = require("./errors/index.js");
 const CloudWatch = {
@@ -161,103 +166,97 @@ const CloudWatch = {
         }
         const calls = options.ensureLogGroup !== false
             ? [
-                CloudWatch.ensureGroupPresent.bind(null, { aws, logGroupName, retentionInDays, cb }),
-                CloudWatch.getStream.bind(null, { aws, logGroupName, logStreamName, cb }),
+                CloudWatch.ensureGroupPresent({ aws, logGroupName, retentionInDays }),
+                CloudWatch.getStream({ aws, logGroupName, logStreamName }),
             ]
-            : [CloudWatch.getStream.bind(null, { aws, logGroupName, logStreamName, cb })];
-        async_1.default.series(calls, function (err, resources) {
-            const groupPresent = calls.length > 1 ? resources[0] : true;
-            const stream = calls.length === 1 ? resources[0] : resources[1];
-            if (groupPresent && stream) {
-                (0, utils_js_1.debug)('token found', stream.uploadSequenceToken);
-                cb(err, stream.uploadSequenceToken);
-            }
-            else {
-                (0, utils_js_1.debug)('token not found', err);
-                cb(err);
-            }
+            : [CloudWatch.getStream({ aws, logGroupName, logStreamName })];
+        Promise.all(calls)
+            .then((values) => {
+            const stream = (calls.length === 1 ? values[0] : values[1]);
+            (0, utils_js_1.debug)('token found', stream.uploadSequenceToken);
+            cb(null, stream.uploadSequenceToken);
+        })
+            .catch((e) => {
+            (0, utils_js_1.debug)('token not found', e);
+            cb(e);
         });
     },
     previousKeyMapKey: (group, stream) => {
         return group + ':' + stream;
     },
-    ensureGroupPresent: ({ aws, logGroupName, retentionInDays, cb }) => {
-        (0, utils_js_1.debug)('ensure group present');
-        const params = { logGroupName };
-        aws.describeLogStreams(params, (err, data) => {
-            // TODO we should cb(err, false) if there's an error?
-            if (err && err.name == 'ResourceNotFoundException') {
-                (0, utils_js_1.debug)('create group');
-                return aws.createLogGroup(params, CloudWatch.ignoreInProgress(function (err) {
-                    if (!err)
-                        CloudWatch.putRetentionPolicy({ aws, logGroupName, retentionInDays });
-                    cb(err, err ? false : true);
-                }));
-            }
-            else {
-                (0, utils_js_1.debug)('group found');
-                CloudWatch.putRetentionPolicy({ aws, logGroupName, retentionInDays });
-                cb(err, true);
-            }
-        });
-    },
-    putRetentionPolicy: ({ aws, logGroupName, retentionInDays }) => {
-        const params = {
-            logGroupName,
-            retentionInDays,
-        };
+    ensureGroupPresent: ({ aws, logGroupName, retentionInDays }) => __awaiter(void 0, void 0, void 0, function* () {
+        return new Promise((resolve, reject) => __awaiter(void 0, void 0, void 0, function* () {
+            yield aws.describeLogStreams({ logGroupName }).catch((e) => __awaiter(void 0, void 0, void 0, function* () {
+                if (e.name === 'ResourceNotFoundException') {
+                    aws.createLogGroup({ logGroupName })
+                        .then(() => {
+                        CloudWatch.putRetentionPolicy({ aws, logGroupName, retentionInDays })
+                            .then(() => resolve(true))
+                            .catch(reject);
+                    })
+                        .catch(reject);
+                }
+                else {
+                    reject(e);
+                }
+            }));
+            CloudWatch.putRetentionPolicy({ aws, logGroupName, retentionInDays })
+                .then(() => resolve(true))
+                .catch(reject);
+        }));
+    }),
+    putRetentionPolicy: ({ aws, logGroupName, retentionInDays }) => __awaiter(void 0, void 0, void 0, function* () {
         if (retentionInDays > 0) {
-            (0, utils_js_1.debug)('setting retention policy for "' + logGroupName + '" to ' + retentionInDays + ' days');
-            aws.putRetentionPolicy(params, function (err, data) {
-                if (err)
-                    console.error('failed to set retention policy for ' +
-                        logGroupName +
-                        ' to ' +
-                        retentionInDays +
-                        ' days due to ' +
-                        err.stack);
-            });
+            yield aws
+                .putRetentionPolicy({ logGroupName, retentionInDays })
+                .catch((err) => console.error('failed to set retention policy for ' +
+                logGroupName +
+                ' to ' +
+                retentionInDays +
+                ' days due to ' +
+                err.stack));
         }
+    }),
+    getStream: ({ aws, logGroupName, logStreamName }) => {
+        return new Promise((resolve, reject) => __awaiter(void 0, void 0, void 0, function* () {
+            const params = {
+                logGroupName,
+                logStreamNamePrefix: logStreamName,
+            };
+            aws.describeLogStreams(params)
+                .then((response) => __awaiter(void 0, void 0, void 0, function* () {
+                var _a;
+                let stream = (_a = response.logStreams) === null || _a === void 0 ? void 0 : _a.find((stream) => stream.logStreamName === logStreamName);
+                if (!stream) {
+                    (0, utils_js_1.debug)('creating stream');
+                    let shouldResolve = true;
+                    yield aws.createLogStream({ logGroupName, logStreamName }).catch((e) => {
+                        if (!CloudWatch.ignoreInProgress(e)) {
+                            shouldResolve = false;
+                            reject(e);
+                        }
+                    });
+                    if (shouldResolve) {
+                        CloudWatch.getStream({ aws, logGroupName, logStreamName })
+                            .then((response) => {
+                            resolve(response);
+                        })
+                            .catch((e) => reject(e));
+                    }
+                }
+                else {
+                    resolve(stream);
+                }
+            }))
+                .catch(reject);
+        }));
     },
-    getStream: ({ aws, logGroupName, logStreamName, cb }) => {
-        const params = {
-            logGroupName,
-            logStreamNamePrefix: logStreamName,
-        };
-        aws.describeLogStreams(params, function (err, data) {
-            var _a;
-            (0, utils_js_1.debug)('ensure stream present', err, data);
-            if (err)
-                return cb(err);
-            var stream = (_a = data.logStreams) === null || _a === void 0 ? void 0 : _a.find(function (stream) {
-                return stream.logStreamName === logStreamName;
-            });
-            if (!stream) {
-                (0, utils_js_1.debug)('create stream');
-                aws.createLogStream({
-                    logGroupName,
-                    logStreamName,
-                }, CloudWatch.ignoreInProgress(function (err) {
-                    if (err)
-                        return cb(err);
-                    CloudWatch.getStream({ aws, logGroupName, logStreamName, cb });
-                }));
-            }
-            else {
-                cb(null, stream);
-            }
-        });
-    },
-    ignoreInProgress: (cb) => {
-        return function (err, data) {
-            if (err && (err.name == 'OperationAbortedException' || err.name == 'ResourceAlreadyExistsException')) {
-                (0, utils_js_1.debug)('ignore operation in progress', err.message);
-                cb(null, data);
-            }
-            else {
-                cb(err, data);
-            }
-        };
+    ignoreInProgress: (err) => {
+        if (err.name == 'OperationAbortedException' || err.name == 'ResourceAlreadyExistsException') {
+            (0, utils_js_1.debug)('ignore operation in progress', err.message);
+            return true;
+        }
+        return false;
     },
 };
 exports.default = CloudWatch;

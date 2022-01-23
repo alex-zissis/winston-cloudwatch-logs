@@ -1,5 +1,5 @@
 import { CloudWatchLogs, LogStream } from '@aws-sdk/client-cloudwatch-logs';
-import { LogCallback, LogEntry } from 'winston';
+import { LogEntry } from 'winston';
 import { WinstonCloudWatchOptions } from '../WinstonCloudWatch.js';
 export declare type MessageFormatFunc = (log: LogEntry) => string;
 export declare type LogEvent = {
@@ -32,16 +32,16 @@ interface CloudWatchSubmissionArgs extends Pick<CloudWatchArgumentsWithPayload, 
 interface ICloudWatch {
     upload: (args: CloudWatchUploadArgs) => void;
     safeUpload: (args: CloudWatchUploadArgs) => void;
-    getToken: (args: CloudWatchArgumentsBase) => void;
+    getToken: (args: CloudWatchArgumentsBase<string>) => void;
     submitWithAnotherToken: (args: CloudWatchArgumentsWithPayload) => void;
     retrySubmit: (args: CloudWatchSubmissionArgs) => void;
-    ensureGroupPresent: (args: Pick<CloudWatchArgumentsBase<boolean>, 'aws' | 'logGroupName' | 'retentionInDays' | 'cb'>) => void;
-    putRetentionPolicy: (args: Pick<CloudWatchArgumentsBase, 'aws' | 'logGroupName' | 'retentionInDays'>) => void;
-    getStream: (args: Pick<CloudWatchArgumentsBase<LogStream>, 'aws' | 'logGroupName' | 'logStreamName' | 'cb'>) => void;
     previousKeyMapKey: (logGroupName: string, logStreamName: string) => string;
     _postingEvents: object;
     _nextToken: object;
-    ignoreInProgress: (cb: LogCallback) => (err: Error, data: any) => void;
+    ensureGroupPresent: (args: Pick<CloudWatchArgumentsBase<boolean>, 'aws' | 'logGroupName' | 'retentionInDays'>) => Promise<boolean>;
+    putRetentionPolicy: (args: Pick<CloudWatchArgumentsBase<boolean>, 'aws' | 'logGroupName' | 'retentionInDays'>) => Promise<void>;
+    getStream: (args: Pick<CloudWatchArgumentsBase<LogStream>, 'aws' | 'logGroupName' | 'logStreamName'>) => Promise<LogStream>;
+    ignoreInProgress: (err: Error) => boolean;
 }
 declare const CloudWatch: ICloudWatch;
 export default CloudWatch;
