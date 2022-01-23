@@ -1,7 +1,6 @@
 import lib from '../dist/mjs/lib/cloudwatch.js';
 import sinon from 'sinon';
 import should from 'should';
-import {LogStream} from '@aws-sdk/client-cloudwatch-logs';
 
 const ArgumentFactory = {
     upload(args = {}) {
@@ -62,7 +61,7 @@ describe('cloudwatch-integration', function () {
             aws.putLogEvents.onSecondCall().yields();
             lib.upload({
                 ...ArgumentFactory.upload(),
-                aws,
+
                 logEvents: events,
             });
             lib.upload({
@@ -74,7 +73,7 @@ describe('cloudwatch-integration', function () {
                         done();
                     },
                 }),
-                aws,
+
                 logEvents: events,
             });
         });
@@ -85,12 +84,12 @@ describe('cloudwatch-integration', function () {
             lib._getToken.onSecondCall().yieldsTo('cb', null, 'token');
             lib.upload({
                 ...ArgumentFactory.upload(),
-                aws,
+
                 logEvents: events,
             });
             lib.upload({
                 ...ArgumentFactory.upload(),
-                aws,
+
                 logEvents: events,
                 cb: function () {
                     // The second upload call should get ignored
@@ -107,14 +106,14 @@ describe('cloudwatch-integration', function () {
             lib._getToken.onSecondCall().yieldsTo('cb', null, 'token');
             lib.upload({
                 ...ArgumentFactory.upload(),
-                aws,
+
                 logEvents: events,
                 logStreamName: 'stream1',
             });
 
             lib.upload({
                 ...ArgumentFactory.upload(),
-                aws,
+
                 logEvents: events,
                 logStreamName: 'stream2',
                 cb: function () {
@@ -133,7 +132,7 @@ describe('cloudwatch-integration', function () {
             var errCalled = false;
             lib.upload({
                 ...ArgumentFactory.upload(),
-                aws,
+
                 logEvents: events,
                 cb: function (err) {
                     if (err) {
@@ -160,7 +159,7 @@ describe('cloudwatch-integration', function () {
             ];
             lib.upload({
                 ...ArgumentFactory.upload(),
-                aws,
+
                 logEvents: events,
                 cb: function (err) {
                     aws.putLogEvents.calledOnce.should.equal(true);
@@ -168,7 +167,7 @@ describe('cloudwatch-integration', function () {
                     // Now, finish.
                     lib.upload({
                         ...ArgumentFactory.upload(),
-                        aws,
+
                         logEvents: events,
                         cb: function (err) {
                             aws.putLogEvents.args[1][0].logEvents.length.should.equal(2); // Second Batch
@@ -183,7 +182,6 @@ describe('cloudwatch-integration', function () {
             lib.upload({
                 ...ArgumentFactory.upload(),
                 logEvents: Array(20),
-                aws,
 
                 cb: function () {
                     aws.putLogEvents.calledOnce.should.equal(true);
@@ -201,7 +199,6 @@ describe('cloudwatch-integration', function () {
             lib.upload({
                 ...ArgumentFactory.upload(),
                 logEvents: Array(20),
-                aws,
 
                 cb: function () {
                     aws.putLogEvents.calledOnce.should.equal(true);
@@ -217,7 +214,7 @@ describe('cloudwatch-integration', function () {
         it('does not put if events are empty', function (done) {
             lib.upload({
                 ...ArgumentFactory.upload(),
-                aws,
+
                 logEvents: [],
                 cb: function () {
                     aws.putLogEvents.called.should.equal(false);
@@ -230,7 +227,7 @@ describe('cloudwatch-integration', function () {
             lib._getToken.yieldsTo('cb', 'err');
             lib.upload({
                 ...ArgumentFactory.upload(),
-                aws,
+
                 logEvents: Array(20),
 
                 cb: function (err) {
@@ -245,7 +242,7 @@ describe('cloudwatch-integration', function () {
 
             lib.upload({
                 ...ArgumentFactory.upload(),
-                aws,
+
                 logEvents: Array(20),
 
                 cb: function (err) {
@@ -259,7 +256,7 @@ describe('cloudwatch-integration', function () {
             aws.putLogEvents.callsArgWith(1, {name: 'InvalidSequenceTokenException'});
             lib.upload({
                 ...ArgumentFactory.upload(),
-                aws,
+
                 logEvents: Array(20),
                 cb: function (err) {
                     lib._submitWithAnotherToken.calledOnce.should.equal(true);
@@ -272,7 +269,7 @@ describe('cloudwatch-integration', function () {
             aws.putLogEvents.callsArgWith(1, {name: 'InvalidSequenceTokenException'});
             lib.upload({
                 ...ArgumentFactory.upload(),
-                aws,
+
                 logEvents: Array(20),
                 cb: function (err) {
                     lib._submitWithAnotherToken.calledOnce.should.equal(true);
@@ -286,7 +283,6 @@ describe('cloudwatch-integration', function () {
             aws.putLogEvents.callsArgWith(1, null, {nextSequenceToken: nextSequenceToken});
             lib.upload({
                 ...ArgumentFactory.upload(),
-                aws,
 
                 logEvents: Array(20),
 
@@ -307,14 +303,12 @@ describe('cloudwatch-integration', function () {
         it('only logs retention policy if given > 0', function () {
             lib._putRetentionPolicy({
                 ...ArgumentFactory.putRetentionPolicy({logEvents: 'group', retentionInDays: 1}),
-                aws,
             });
             aws.putRetentionPolicy.calledOnce.should.equal(true);
         });
         it('doesnt logs retention policy if given = 0', function () {
             lib._putRetentionPolicy({
                 ...ArgumentFactory.putRetentionPolicy({logEvents: 'group', retentionInDays: 0}),
-                aws,
             });
             aws.putRetentionPolicy.calledOnce.should.equal(false);
         });
@@ -349,7 +343,7 @@ describe('cloudwatch-integration', function () {
 
             lib._getToken({
                 ...ArgumentFactory.getToken(),
-                aws,
+
                 options: {
                     ensureGroupPresent: true,
                 },
@@ -366,7 +360,7 @@ describe('cloudwatch-integration', function () {
             getStream.resolves({...streamResponse, uploadSequenceToken: 'token'});
             lib._getToken({
                 ...ArgumentFactory.getToken(),
-                aws,
+
                 options: {
                     ensureGroupPresent: true,
                 },
@@ -383,7 +377,7 @@ describe('cloudwatch-integration', function () {
 
             lib._getToken({
                 ...ArgumentFactory.getToken(),
-                aws,
+
                 cb: function (err) {
                     err.name.should.equal('err');
                     done();
@@ -397,7 +391,7 @@ describe('cloudwatch-integration', function () {
 
             lib._getToken({
                 ...ArgumentFactory.getToken(),
-                aws,
+
                 cb: function (err) {
                     err.name.should.equal('err');
                     done();
@@ -409,7 +403,7 @@ describe('cloudwatch-integration', function () {
             lib._nextToken = {'group:stream': 'test123'};
             lib._getToken({
                 ...ArgumentFactory.getToken(),
-                aws,
+
                 cb: function () {
                     ensureGroupPresent.notCalled.should.equal(true);
                     getStream.notCalled.should.equal(true);
@@ -465,7 +459,6 @@ describe('cloudwatch-integration', function () {
 
             lib._ensureGroupPresent({
                 ...ArgumentFactory.ensureGroupPresent(),
-                aws,
             }).catch((e) => {
                 e.name.should.equal('err');
                 done();
@@ -480,7 +473,6 @@ describe('cloudwatch-integration', function () {
 
             lib._ensureGroupPresent({
                 ...ArgumentFactory.ensureGroupPresent(),
-                aws,
             })
                 .then((res) => console.log({res}))
                 .catch((err) => {
@@ -515,7 +507,6 @@ describe('cloudwatch-integration', function () {
 
         it('yields the stream we want', async () => {
             const stream = await lib._getStream({
-                aws,
                 ...ArgumentFactory.getStream(),
             });
             stream.logStreamName.should.equal('stream');
@@ -525,7 +516,6 @@ describe('cloudwatch-integration', function () {
             aws.describeLogStreams = sinon.stub().rejects('err');
 
             lib._getStream({
-                aws,
                 ...ArgumentFactory.getStream(),
             }).catch((err) => {
                 err.name.should.equal('err');
@@ -538,7 +528,6 @@ describe('cloudwatch-integration', function () {
             aws.createLogStream = () => new Promise((resolve, reject) => reject('err'));
 
             lib._getStream({
-                aws,
                 ...ArgumentFactory.getStream(),
             }).catch((err) => {
                 err.should.equal('err');
@@ -567,7 +556,6 @@ describe('cloudwatch-integration', function () {
             aws.createLogStream = sinon.stub().rejects(err);
 
             lib._getStream({
-                aws,
                 ...ArgumentFactory.getStream(),
             }).then((res) => {
                 res.logStreamName.should.equal('stream');
@@ -595,7 +583,6 @@ describe('cloudwatch-integration', function () {
             aws.createLogStream = sinon.stub().rejects(err);
 
             lib._getStream({
-                aws,
                 ...ArgumentFactory.getStream(),
             }).then((stream) => {
                 stream.logStreamName.should.equal('stream');
@@ -639,7 +626,6 @@ describe('cloudwatch-integration', function () {
 
         it('gets a token then resubmits', function (done) {
             lib._submitWithAnotherToken({
-                aws,
                 ...ArgumentFactory.submitWithAnotherToken(),
                 cb: function () {
                     aws.putLogEvents.calledOnce.should.equal(true);
