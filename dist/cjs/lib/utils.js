@@ -16,7 +16,6 @@ const handleErrorObject = (key, value) => {
     return value;
 };
 exports.handleErrorObject = handleErrorObject;
-// const stringify = (o: object) => safeStringify(o, handleErrorObject, '  ');
 const stringify = (o) => {
     try {
         return JSON.stringify(o, handleErrorObject, '  ');

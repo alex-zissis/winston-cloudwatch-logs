@@ -31,17 +31,17 @@ interface CloudWatchSubmissionArgs extends Pick<CloudWatchArgumentsWithPayload, 
 }
 interface ICloudWatch {
     upload: (args: CloudWatchUploadArgs) => void;
-    safeUpload: (args: CloudWatchUploadArgs) => void;
-    getToken: (args: CloudWatchArgumentsBase<string>) => void;
-    submitWithAnotherToken: (args: CloudWatchArgumentsWithPayload) => void;
-    retrySubmit: (args: CloudWatchSubmissionArgs) => void;
-    previousKeyMapKey: (logGroupName: string, logStreamName: string) => string;
+    _safeUpload: (args: CloudWatchUploadArgs) => void;
+    _getToken: (args: CloudWatchArgumentsBase<string>) => void;
+    _submitWithAnotherToken: (args: CloudWatchArgumentsWithPayload) => void;
+    _retrySubmit: (args: CloudWatchSubmissionArgs) => void;
+    _previousKeyMapKey: (logGroupName: string, logStreamName: string) => string;
     _postingEvents: object;
     _nextToken: object;
-    ensureGroupPresent: (args: Pick<CloudWatchArgumentsBase<boolean>, 'aws' | 'logGroupName' | 'retentionInDays'>) => Promise<boolean>;
-    putRetentionPolicy: (args: Pick<CloudWatchArgumentsBase<boolean>, 'aws' | 'logGroupName' | 'retentionInDays'>) => Promise<void>;
-    getStream: (args: Pick<CloudWatchArgumentsBase<LogStream>, 'aws' | 'logGroupName' | 'logStreamName'>) => Promise<LogStream>;
-    ignoreInProgress: (err: Error) => boolean;
+    _ensureGroupPresent: (args: Pick<CloudWatchArgumentsBase<boolean>, 'aws' | 'logGroupName' | 'retentionInDays'>) => Promise<boolean>;
+    _putRetentionPolicy: (args: Pick<CloudWatchArgumentsBase<boolean>, 'aws' | 'logGroupName' | 'retentionInDays'>) => Promise<void>;
+    _getStream: (args: Pick<CloudWatchArgumentsBase<LogStream>, 'aws' | 'logGroupName' | 'logStreamName'>) => Promise<LogStream>;
+    _ignoreInProgress: (err: Error) => boolean;
 }
 declare const CloudWatch: ICloudWatch;
 export default CloudWatch;

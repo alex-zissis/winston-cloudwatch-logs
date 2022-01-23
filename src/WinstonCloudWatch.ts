@@ -86,10 +86,10 @@ class WinstonCloudWatch extends TransportStream {
         this.logEvents = [];
         this.errorHandler = errorHandler;
 
-        this.cloudwatchlogs = cloudWatchLogs ?? this.createCloudwatchLogsInstance();
+        this.cloudwatchlogs = cloudWatchLogs ?? this.#createCloudwatchLogsInstance();
     }
 
-    createCloudwatchLogsInstance() {
+    #createCloudwatchLogsInstance() {
         let config: CloudWatchLogsClientConfig = {};
         const {awsAccessKeyId, awsRegion, awsSecretKey, awsOptions} = this.options;
 

@@ -13,7 +13,7 @@ var __classPrivateFieldGet = (this && this.__classPrivateFieldGet) || function (
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
-var _WinstonCloudWatch_logGroupName, _WinstonCloudWatch_logStreamName;
+var _WinstonCloudWatch_instances, _WinstonCloudWatch_logGroupName, _WinstonCloudWatch_logStreamName, _WinstonCloudWatch_createCloudwatchLogsInstance;
 Object.defineProperty(exports, "__esModule", { value: true });
 const winston_1 = __importDefault(require("winston"));
 const winston_transport_1 = __importDefault(require("winston-transport"));
@@ -28,6 +28,7 @@ class WinstonCloudWatch extends winston_transport_1.default {
     constructor(options) {
         var _a;
         super(options);
+        _WinstonCloudWatch_instances.add(this);
         _WinstonCloudWatch_logGroupName.set(this, void 0);
         _WinstonCloudWatch_logStreamName.set(this, void 0);
         const { level, name, cloudWatchLogs, logGroupName, logStreamName, messageFormatter, jsonMessage, uploadRate, errorHandler, proxyServer, } = options;
@@ -43,31 +44,13 @@ class WinstonCloudWatch extends winston_transport_1.default {
         this.uploadRate = uploadRate !== null && uploadRate !== void 0 ? uploadRate : 2000;
         this.logEvents = [];
         this.errorHandler = errorHandler;
-        this.cloudwatchlogs = cloudWatchLogs !== null && cloudWatchLogs !== void 0 ? cloudWatchLogs : this.createCloudwatchLogsInstance();
+        this.cloudwatchlogs = cloudWatchLogs !== null && cloudWatchLogs !== void 0 ? cloudWatchLogs : __classPrivateFieldGet(this, _WinstonCloudWatch_instances, "m", _WinstonCloudWatch_createCloudwatchLogsInstance).call(this);
     }
     get logGroupName() {
         return typeof __classPrivateFieldGet(this, _WinstonCloudWatch_logGroupName, "f") === 'function' ? __classPrivateFieldGet(this, _WinstonCloudWatch_logGroupName, "f").call(this) : __classPrivateFieldGet(this, _WinstonCloudWatch_logGroupName, "f");
     }
     get logStreamName() {
         return typeof __classPrivateFieldGet(this, _WinstonCloudWatch_logStreamName, "f") === 'function' ? __classPrivateFieldGet(this, _WinstonCloudWatch_logStreamName, "f").call(this) : __classPrivateFieldGet(this, _WinstonCloudWatch_logStreamName, "f");
-    }
-    createCloudwatchLogsInstance() {
-        let config = {};
-        const { awsAccessKeyId, awsRegion, awsSecretKey, awsOptions } = this.options;
-        if (awsAccessKeyId && awsSecretKey && awsRegion) {
-            config = { credentials: { accessKeyId: awsAccessKeyId, secretAccessKey: awsAccessKeyId }, region: awsRegion };
-        }
-        else if (awsRegion && !awsAccessKeyId && !awsSecretKey) {
-            // Amazon SDK will automatically pull access credentials
-            // from IAM Role when running on EC2 but region still
-            // needs to be configured
-            config = { region: awsRegion };
-        }
-        if (this.proxyServer) {
-            const proxyAgent = new proxy_agent_1.default(this.proxyServer);
-            config.requestHandler = new node_http_handler_1.NodeHttpHandler({ httpAgent: proxyAgent, httpsAgent: proxyAgent });
-        }
-        return new client_cloudwatch_logs_1.CloudWatchLogs(Object.assign(Object.assign({}, awsOptions), config));
     }
     add(log) {
         (0, utils_js_1.debug)('add log to queue', log);
@@ -139,6 +122,23 @@ class WinstonCloudWatch extends winston_transport_1.default {
         }.bind(this));
     }
 }
-_WinstonCloudWatch_logGroupName = new WeakMap(), _WinstonCloudWatch_logStreamName = new WeakMap();
+_WinstonCloudWatch_logGroupName = new WeakMap(), _WinstonCloudWatch_logStreamName = new WeakMap(), _WinstonCloudWatch_instances = new WeakSet(), _WinstonCloudWatch_createCloudwatchLogsInstance = function _WinstonCloudWatch_createCloudwatchLogsInstance() {
+    let config = {};
+    const { awsAccessKeyId, awsRegion, awsSecretKey, awsOptions } = this.options;
+    if (awsAccessKeyId && awsSecretKey && awsRegion) {
+        config = { credentials: { accessKeyId: awsAccessKeyId, secretAccessKey: awsAccessKeyId }, region: awsRegion };
+    }
+    else if (awsRegion && !awsAccessKeyId && !awsSecretKey) {
+        // Amazon SDK will automatically pull access credentials
+        // from IAM Role when running on EC2 but region still
+        // needs to be configured
+        config = { region: awsRegion };
+    }
+    if (this.proxyServer) {
+        const proxyAgent = new proxy_agent_1.default(this.proxyServer);
+        config.requestHandler = new node_http_handler_1.NodeHttpHandler({ httpAgent: proxyAgent, httpsAgent: proxyAgent });
+    }
+    return new client_cloudwatch_logs_1.CloudWatchLogs(Object.assign(Object.assign({}, awsOptions), config));
+};
 winston_1.default.transports.CloudWatch = WinstonCloudWatch;
 exports.default = WinstonCloudWatch;

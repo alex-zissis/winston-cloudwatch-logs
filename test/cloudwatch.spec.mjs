@@ -40,14 +40,14 @@ describe('cloudwatch-integration', function () {
         beforeEach(function () {
             aws.putLogEvents = sinon.stub().yields();
             aws.putRetentionPolicy = sinon.stub().returns();
-            sinon.stub(lib, 'getToken').yieldsTo('cb', null, 'token');
-            sinon.stub(lib, 'submitWithAnotherToken').yieldsTo('cb');
+            sinon.stub(lib, '_getToken').yieldsTo('cb', null, 'token');
+            sinon.stub(lib, '_submitWithAnotherToken').yieldsTo('cb');
             sinon.stub(console, 'error');
         });
 
         afterEach(function () {
-            lib.getToken.restore();
-            lib.submitWithAnotherToken.restore();
+            lib._getToken.restore();
+            lib._submitWithAnotherToken.restore();
             console.error.restore();
             lib._nextToken = {};
         });
@@ -79,8 +79,8 @@ describe('cloudwatch-integration', function () {
 
         it('ignores upload calls if getToken already in progress', function (done) {
             const events = [{message: 'test message', timestamp: new Date().toISOString()}];
-            lib.getToken.onFirstCall().returns(); // Don't call call back to simulate ongoing token request.
-            lib.getToken.onSecondCall().yieldsTo('cb', null, 'token');
+            lib._getToken.onFirstCall().returns(); // Don't call call back to simulate ongoing token request.
+            lib._getToken.onSecondCall().yieldsTo('cb', null, 'token');
             lib.upload({
                 ...ArgumentFactory.upload(),
                 aws,
@@ -92,7 +92,7 @@ describe('cloudwatch-integration', function () {
                 logEvents: events,
                 cb: function () {
                     // The second upload call should get ignored
-                    lib.getToken.calledOnce.should.equal(true);
+                    lib._getToken.calledOnce.should.equal(true);
                     lib._postingEvents['stream'] = false; // reset
                     done();
                 },
@@ -101,8 +101,8 @@ describe('cloudwatch-integration', function () {
 
         it('not ignores upload calls if getToken already in progress for another stream', function (done) {
             const events = [{message: 'test message', timestamp: new Date().toISOString()}];
-            lib.getToken.onFirstCall().returns(); // Don't call call back to simulate ongoing token request.
-            lib.getToken.onSecondCall().yieldsTo('cb', null, 'token');
+            lib._getToken.onFirstCall().returns(); // Don't call call back to simulate ongoing token request.
+            lib._getToken.onSecondCall().yieldsTo('cb', null, 'token');
             lib.upload({
                 ...ArgumentFactory.upload(),
                 aws,
@@ -116,7 +116,7 @@ describe('cloudwatch-integration', function () {
                 logEvents: events,
                 logStreamName: 'stream2',
                 cb: function () {
-                    lib.getToken.calledTwice.should.equal(true);
+                    lib._getToken.calledTwice.should.equal(true);
                     done();
                 },
             });
@@ -195,7 +195,7 @@ describe('cloudwatch-integration', function () {
         });
 
         it('adds token to the payload only if it exists', function (done) {
-            lib.getToken.yieldsTo('cb', null);
+            lib._getToken.yieldsTo('cb', null);
             lib.upload({
                 ...ArgumentFactory.upload(),
                 logEvents: Array(20),
@@ -225,7 +225,7 @@ describe('cloudwatch-integration', function () {
         });
 
         it('errors if getting the token errors', function (done) {
-            lib.getToken.yieldsTo('cb', 'err');
+            lib._getToken.yieldsTo('cb', 'err');
             lib.upload({
                 ...ArgumentFactory.upload(),
                 aws,
@@ -260,7 +260,7 @@ describe('cloudwatch-integration', function () {
                 aws,
                 logEvents: Array(20),
                 cb: function (err) {
-                    lib.submitWithAnotherToken.calledOnce.should.equal(true);
+                    lib._submitWithAnotherToken.calledOnce.should.equal(true);
                     done();
                 },
             });
@@ -273,7 +273,7 @@ describe('cloudwatch-integration', function () {
                 aws,
                 logEvents: Array(20),
                 cb: function (err) {
-                    lib.submitWithAnotherToken.calledOnce.should.equal(true);
+                    lib._submitWithAnotherToken.calledOnce.should.equal(true);
                     done();
                 },
             });
@@ -302,14 +302,14 @@ describe('cloudwatch-integration', function () {
             aws.putRetentionPolicy = sinon.stub().returns();
         });
         it('only logs retention policy if given > 0', function () {
-            lib.putRetentionPolicy({
+            lib._putRetentionPolicy({
                 ...ArgumentFactory.putRetentionPolicy({logEvents: 'group', retentionInDays: 1}),
                 aws,
             });
             aws.putRetentionPolicy.calledOnce.should.equal(true);
         });
         it('doesnt logs retention policy if given = 0', function () {
-            lib.putRetentionPolicy({
+            lib._putRetentionPolicy({
                 ...ArgumentFactory.putRetentionPolicy({logEvents: 'group', retentionInDays: 0}),
                 aws,
             });
@@ -330,20 +330,20 @@ describe('cloudwatch-integration', function () {
         };
 
         beforeEach(function () {
-            ensureGroupPresent = sinon.stub(lib, 'ensureGroupPresent');
-            getStream = sinon.stub(lib, 'getStream');
+            ensureGroupPresent = sinon.stub(lib, '_ensureGroupPresent');
+            getStream = sinon.stub(lib, '_getStream');
         });
 
         afterEach(function () {
-            lib.ensureGroupPresent.restore();
-            lib.getStream.restore();
+            lib._ensureGroupPresent.restore();
+            lib._getStream.restore();
         });
 
         it('ensures group and stream are present if no nextToken for group/stream', function (done) {
             ensureGroupPresent.resolves(true);
             getStream.resolves(streamResponse);
 
-            lib.getToken({
+            lib._getToken({
                 ...ArgumentFactory.getToken(),
                 aws,
                 options: {
@@ -360,7 +360,7 @@ describe('cloudwatch-integration', function () {
         it('yields token when group and stream are present', function (done) {
             ensureGroupPresent.resolves(true);
             getStream.resolves({...streamResponse, uploadSequenceToken: 'token'});
-            lib.getToken({
+            lib._getToken({
                 ...ArgumentFactory.getToken(),
                 aws,
                 options: {
@@ -377,7 +377,7 @@ describe('cloudwatch-integration', function () {
         it('errors when ensuring group errors', function (done) {
             ensureGroupPresent.rejects('err');
 
-            lib.getToken({
+            lib._getToken({
                 ...ArgumentFactory.getToken(),
                 aws,
                 cb: function (err) {
@@ -391,7 +391,7 @@ describe('cloudwatch-integration', function () {
             ensureGroupPresent.resolves(true);
             getStream.rejects('err');
 
-            lib.getToken({
+            lib._getToken({
                 ...ArgumentFactory.getToken(),
                 aws,
                 cb: function (err) {
@@ -403,7 +403,7 @@ describe('cloudwatch-integration', function () {
 
         it('does not ensure group and stream are present if nextToken for group/stream', function (done) {
             lib._nextToken = {'group:stream': 'test123'};
-            lib.getToken({
+            lib._getToken({
                 ...ArgumentFactory.getToken(),
                 aws,
                 cb: function () {
@@ -425,7 +425,7 @@ describe('cloudwatch-integration', function () {
                     return new Promise((resolve, reject) => resolve({}));
                 },
             };
-            putRetentionPolicy = sinon.stub(lib, 'putRetentionPolicy');
+            putRetentionPolicy = sinon.stub(lib, '_putRetentionPolicy');
         });
 
         afterEach(function () {
@@ -434,7 +434,7 @@ describe('cloudwatch-integration', function () {
 
         it('makes sure that a group is present', async () => {
             putRetentionPolicy.resolves();
-            const result = await lib.ensureGroupPresent({
+            const result = await lib._ensureGroupPresent({
                 ...ArgumentFactory.ensureGroupPresent(),
                 aws,
             });
@@ -448,7 +448,7 @@ describe('cloudwatch-integration', function () {
             aws.createLogGroup = sinon.stub().resolves(true);
             putRetentionPolicy.resolves();
 
-            const isPresent = await lib.ensureGroupPresent({
+            const isPresent = await lib._ensureGroupPresent({
                 ...ArgumentFactory.ensureGroupPresent(),
                 aws,
             });
@@ -460,7 +460,7 @@ describe('cloudwatch-integration', function () {
         it('errors if looking for a group errors', (done) => {
             aws.describeLogStreams = sinon.stub().rejects('err');
 
-            lib.ensureGroupPresent({
+            lib._ensureGroupPresent({
                 ...ArgumentFactory.ensureGroupPresent(),
                 aws,
             }).catch((e) => {
@@ -475,7 +475,7 @@ describe('cloudwatch-integration', function () {
             aws.describeLogStreams = sinon.stub().rejects(err);
             aws.createLogGroup = sinon.stub().rejects('err');
 
-            lib.ensureGroupPresent({
+            lib._ensureGroupPresent({
                 ...ArgumentFactory.ensureGroupPresent(),
                 aws,
             })
@@ -510,7 +510,7 @@ describe('cloudwatch-integration', function () {
         });
 
         it('yields the stream we want', async () => {
-            const stream = await lib.getStream({
+            const stream = await lib._getStream({
                 aws,
                 ...ArgumentFactory.getStream(),
             });
@@ -520,7 +520,7 @@ describe('cloudwatch-integration', function () {
         it('errors if getting streams errors', function (done) {
             aws.describeLogStreams = sinon.stub().rejects('err');
 
-            lib.getStream({
+            lib._getStream({
                 aws,
                 ...ArgumentFactory.getStream(),
             }).catch((err) => {
@@ -533,7 +533,7 @@ describe('cloudwatch-integration', function () {
             aws.describeLogStreams = sinon.stub().resolves([]);
             aws.createLogStream = () => new Promise((resolve, reject) => reject('err'));
 
-            lib.getStream({
+            lib._getStream({
                 aws,
                 ...ArgumentFactory.getStream(),
             }).catch((err) => {
@@ -562,7 +562,7 @@ describe('cloudwatch-integration', function () {
             var err = {name: 'OperationAbortedException'};
             aws.createLogStream = sinon.stub().rejects(err);
 
-            lib.getStream({
+            lib._getStream({
                 aws,
                 ...ArgumentFactory.getStream(),
             }).then((res) => {
@@ -590,7 +590,7 @@ describe('cloudwatch-integration', function () {
             var err = {name: 'ResourceAlreadyExistsException'};
             aws.createLogStream = sinon.stub().rejects(err);
 
-            lib.getStream({
+            lib._getStream({
                 aws,
                 ...ArgumentFactory.getStream(),
             }).then((stream) => {
@@ -603,18 +603,18 @@ describe('cloudwatch-integration', function () {
     describe('ignoreInProgress', function () {
         it('ignores a OperationAbortedException', function () {
             var err = {name: 'OperationAbortedException'};
-            lib.ignoreInProgress(err).should.equal(true);
+            lib._ignoreInProgress(err).should.equal(true);
         });
 
         it('ignores a ResourceAlreadyExistsException', function () {
             var err = {name: 'ResourceAlreadyExistsException'};
-            lib.ignoreInProgress(err).should.equal(true);
+            lib._ignoreInProgress(err).should.equal(true);
         });
 
         it('does not ignore any other error', function () {
             var err = {name: 'BoatTooLittleException'};
-            lib.ignoreInProgress(err).should.equal(false);
-            lib.ignoreInProgress({name: 'otherErr'}).should.equal(false);
+            lib._ignoreInProgress(err).should.equal(false);
+            lib._ignoreInProgress({name: 'otherErr'}).should.equal(false);
         });
     });
 
@@ -623,17 +623,17 @@ describe('cloudwatch-integration', function () {
 
         beforeEach(function () {
             aws.putLogEvents = sinon.stub().yields();
-            sinon.stub(lib, 'getToken').yieldsTo('cb', null, 'new-token');
+            sinon.stub(lib, '_getToken').yieldsTo('cb', null, 'new-token');
             sinon.stub(console, 'error');
         });
 
         afterEach(function () {
-            lib.getToken.restore();
+            lib._getToken.restore();
             console.error.restore();
         });
 
         it('gets a token then resubmits', function (done) {
-            lib.submitWithAnotherToken({
+            lib._submitWithAnotherToken({
                 aws,
                 ...ArgumentFactory.submitWithAnotherToken(),
                 cb: function () {

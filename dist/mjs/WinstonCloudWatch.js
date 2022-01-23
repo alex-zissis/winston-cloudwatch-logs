@@ -42,9 +42,9 @@ class WinstonCloudWatch extends TransportStream {
         this.uploadRate = uploadRate ?? 2000;
         this.logEvents = [];
         this.errorHandler = errorHandler;
-        this.cloudwatchlogs = cloudWatchLogs ?? this.createCloudwatchLogsInstance();
+        this.cloudwatchlogs = cloudWatchLogs ?? this.#createCloudwatchLogsInstance();
     }
-    createCloudwatchLogsInstance() {
+    #createCloudwatchLogsInstance() {
         let config = {};
         const { awsAccessKeyId, awsRegion, awsSecretKey, awsOptions } = this.options;
         if (awsAccessKeyId && awsSecretKey && awsRegion) {
