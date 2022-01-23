@@ -1,5 +1,15 @@
-import chalk from 'chalk';
 import safeStringify from 'fast-safe-stringify';
+
+const AnsiReset = '\u001b[0m';
+
+const noChalk = {
+    _colorize: (str: string, ansiColor: string) => `${ansiColor}${str}${AnsiReset}`,
+
+    blue: (str: string) => noChalk._colorize(str, '\u001b[34m'),
+    green: (str: string) => noChalk._colorize(str, '\u001b[32m'),
+    red: (str: string) => noChalk._colorize(str, '\u001b[31m'),
+
+}
 
 const handleErrorObject = (key: string, value: any) => {
     if (value instanceof Error) {
@@ -22,14 +32,14 @@ const stringify = (o: object) => {
 const debug = (...args: any[]) => {
     if (!process.env.WINSTON_CLOUDWATCH_DEBUG) return;
     var lastParam = args.pop();
-    var color = chalk.red;
+    var color = noChalk.red;
     if (lastParam !== true) {
         args.push(lastParam);
-        color = chalk.green;
+        color = noChalk.green;
     }
 
     args[0] = color(args[0]);
-    args.unshift(chalk.blue('DEBUG:'));
+    args.unshift(noChalk.blue('DEBUG:'));
     console.log.apply(console, args);
 };
 
