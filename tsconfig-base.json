@@ -9,4 +9,5 @@
         "typeRoots": ["./src/types", "./node_modules/@types"],
         "declaration": true
     },
+    "include": ["src/"]
 }
