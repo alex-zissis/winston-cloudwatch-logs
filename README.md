@@ -10,7 +10,7 @@ Winston Cloudwatch Logs uses v3 of the AWS SDK, which among other things, allows
 Let's see a size comparison of a minimal app with Winston CloudWatch vs Winston CloudWatch Logs.
 ![Bundle size comparison](./images/size.jpg)
 
-As you can see, WinstonCloudWatch (remember it requires you to install `aws-sdk` to work) uses a whopping **66.6MB**. Whereas Winston CloudWatch Logs comes in at a breezy **0.33MB**.
+As you can see, WinstonCloudWatch (remember it requires you to install `aws-sdk` to work) uses a whopping **66.6MB**. Whereas Winston CloudWatch Logs comes in at a breezy **0.33MB**, including any required `@aws-sdk/*` dependencies.
 
 The package is intented to be fully API compatible with Winston Cloudwatch, so migrating to use it is very simple.
 
