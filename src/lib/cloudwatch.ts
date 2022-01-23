@@ -8,7 +8,7 @@ const LIMITS = {
 const BASE_EVENT_SIZE_BYTES = 26;
 
 import {debug} from './utils.js';
-import {CloudWatchLogs, LogStream, PutLogEventsCommandOutput} from '@aws-sdk/client-cloudwatch-logs';
+import {CloudWatchLogs, LogStream} from '@aws-sdk/client-cloudwatch-logs';
 import {LogEntry} from 'winston';
 import {WinstonCloudWatchOptions} from '../WinstonCloudWatch.js';
 import {MessageTooBigError} from './errors/index.js';
