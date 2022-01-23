@@ -1,6 +1,6 @@
 {
     "name": "winston-cloudwatch-logs",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "description": "A rewrite of the popular winston-cloudwatch package. Designed to be smaller, more effieicent, more modern and fully API compatible with the original package.",
     "keywords": [
         "amazon",
