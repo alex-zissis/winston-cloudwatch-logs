@@ -1,8 +1,16 @@
 {
     "name": "winston-cloudwatch-logs",
-    "version": "0.0.1",
+    "version": "0.0.2",
     "description": "A rewrite of the popular winston-cloudwatch package. Designed to be smaller, more effieicent, more modern and fully API compatible with the original package.",
-    "keywords": ["amazon", "aws", "cloudwatch", "winston", "logging", "logs", "logger"],
+    "keywords": [
+        "amazon",
+        "aws",
+        "cloudwatch",
+        "winston",
+        "logging",
+        "logs",
+        "logger"
+    ],
     "repository": "https://github.com/alex-zissis/winston-cloudwatch-logs",
     "author": "Alex Zissis <alex@zico.dev>",
     "license": "MIT",
