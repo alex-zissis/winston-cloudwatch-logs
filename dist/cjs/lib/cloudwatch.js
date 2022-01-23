@@ -74,9 +74,9 @@ const CloudWatch = {
             let entryIndex = 0;
             let bytes = 0;
             while (entryIndex < logEvents.length) {
-                var ev = logEvents[entryIndex];
+                const ev = logEvents[entryIndex];
                 // unit tests pass null elements
-                var evSize = ev ? Buffer.byteLength(ev.message, 'utf8') + BASE_EVENT_SIZE_BYTES : 0;
+                let evSize = ev ? Buffer.byteLength(ev.message, 'utf8') + BASE_EVENT_SIZE_BYTES : 0;
                 if (evSize > LIMITS.MAX_EVENT_MSG_SIZE_BYTES) {
                     evSize = LIMITS.MAX_EVENT_MSG_SIZE_BYTES;
                     ev.message = ev.message.substring(0, evSize);
@@ -177,30 +177,24 @@ const CloudWatch = {
         });
     },
     _getToken: ({ logGroupName, logStreamName, retentionInDays, options }) => {
-        var existingNextToken = CloudWatch._nextToken[CloudWatch._previousKeyMapKey(logGroupName, logStreamName)];
-        return new Promise((resolve, reject) => {
+        const existingNextToken = CloudWatch._nextToken[CloudWatch._previousKeyMapKey(logGroupName, logStreamName)];
+        return new Promise((resolve, reject) => __awaiter(void 0, void 0, void 0, function* () {
             if (existingNextToken) {
                 (0, utils_js_1.debug)('using existing next token and assuming exists', existingNextToken);
                 resolve(existingNextToken);
                 return;
             }
-            const calls = options.ensureLogGroup !== false
-                ? [
-                    CloudWatch._ensureGroupPresent({ logGroupName, retentionInDays }),
-                    CloudWatch._getStream({ logGroupName, logStreamName }),
-                ]
-                : [CloudWatch._getStream({ logGroupName, logStreamName })];
-            Promise.all(calls)
-                .then((values) => {
-                const stream = (calls.length === 1 ? values[0] : values[1]);
+            if (options.ensureLogGroup !== false) {
+                const res = yield CloudWatch._ensureGroupPresent({ logGroupName, retentionInDays }).catch(reject);
+                if (!res) {
+                    return;
+                }
+            }
+            CloudWatch._getStream({ logGroupName, logStreamName }).then(stream => {
                 (0, utils_js_1.debug)('token found', stream.uploadSequenceToken);
                 resolve(stream.uploadSequenceToken);
-            })
-                .catch((e) => {
-                (0, utils_js_1.debug)('token not found', e);
-                reject(e);
-            });
-        });
+            }).catch(reject);
+        }));
     },
     _previousKeyMapKey: (group, stream) => {
         return group + ':' + stream;
