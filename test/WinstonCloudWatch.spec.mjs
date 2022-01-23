@@ -2,17 +2,18 @@ import sinon from 'sinon';
 import should from 'should';
 import esmock from 'esmock';
 
-describe('index', function () {
+describe('WinstonCloudWatch', function () {
     var stubbedAWS = {
         CloudWatchLogs: function (options) {
             this.fakeOptions = options;
         },
     };
     var stubbedCloudwatchIntegration = {
-        upload: sinon.spy(function ({aws, groupName, streamName, logEvents, retention, options, cb}) {
+        upload: sinon.spy(function ({groupName, streamName, logEvents, retention, options, cb}) {
             this.lastLoggedEvents = logEvents.splice(0, 20);
             cb();
         }),
+        init: sinon.stub(),
     };
     var clock = sinon.useFakeTimers();
 
@@ -26,8 +27,6 @@ describe('index', function () {
     });
 
     after(function () {
-        // mockery.deregisterAll();
-        // mockery.disable();
         clock.restore();
     });
 
@@ -38,6 +37,7 @@ describe('index', function () {
             };
             var transport = new WinstonCloudWatch(options);
             transport.cloudwatchlogs.fakeOptions.region.should.equal('us-west-2');
+            stubbedCloudwatchIntegration.init.calledOnce.should.equal(true);
         });
 
         it('allows awsOptions', async () => {
@@ -69,9 +69,12 @@ describe('index', function () {
                 proxyServer: 'http://test.com',
             };
             var transport = new WinstonCloudWatch(options);
-            // const requestHandler = await transport.cloudwatchlogs.config;
-            // requestHandler.httpsAgent.should.exist;
-            // requestHandler.httpAgent.should.exist;
+            const {requestHandler} = transport.cloudwatchlogs.fakeOptions;
+            console.log(requestHandler)
+            requestHandler.config.httpsAgent.should.exist;
+            requestHandler.config.httpsAgent.proxyUri.should.equal('http://test.com');
+            requestHandler.config.httpAgent.should.exist;
+            requestHandler.config.httpAgent.proxyUri.should.equal('http://test.com');
         });
     });
 

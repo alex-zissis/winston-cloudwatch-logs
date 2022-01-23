@@ -43,6 +43,7 @@ class WinstonCloudWatch extends TransportStream {
         this.logEvents = [];
         this.errorHandler = errorHandler;
         this.cloudwatchlogs = cloudWatchLogs ?? this.#createCloudwatchLogsInstance();
+        CloudWatch.init(this.cloudwatchlogs);
     }
     #createCloudwatchLogsInstance() {
         let config = {};
@@ -103,7 +104,6 @@ class WinstonCloudWatch extends TransportStream {
             return cb();
         }
         CloudWatch.upload({
-            aws: this.cloudwatchlogs,
             logGroupName: this.logGroupName,
             logStreamName: this.logStreamName,
             logEvents: this.logEvents,

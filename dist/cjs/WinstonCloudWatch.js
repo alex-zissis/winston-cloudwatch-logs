@@ -45,6 +45,7 @@ class WinstonCloudWatch extends winston_transport_1.default {
         this.logEvents = [];
         this.errorHandler = errorHandler;
         this.cloudwatchlogs = cloudWatchLogs !== null && cloudWatchLogs !== void 0 ? cloudWatchLogs : __classPrivateFieldGet(this, _WinstonCloudWatch_instances, "m", _WinstonCloudWatch_createCloudwatchLogsInstance).call(this);
+        cloudwatch_js_1.default.init(this.cloudwatchlogs);
     }
     get logGroupName() {
         return typeof __classPrivateFieldGet(this, _WinstonCloudWatch_logGroupName, "f") === 'function' ? __classPrivateFieldGet(this, _WinstonCloudWatch_logGroupName, "f").call(this) : __classPrivateFieldGet(this, _WinstonCloudWatch_logGroupName, "f");
@@ -93,7 +94,6 @@ class WinstonCloudWatch extends winston_transport_1.default {
             return cb();
         }
         cloudwatch_js_1.default.upload({
-            aws: this.cloudwatchlogs,
             logGroupName: this.logGroupName,
             logStreamName: this.logStreamName,
             logEvents: this.logEvents,

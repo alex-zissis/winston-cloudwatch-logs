@@ -40,6 +40,8 @@ describe('cloudwatch-integration', function () {
         beforeEach(function () {
             aws.putLogEvents = sinon.stub().yields();
             aws.putRetentionPolicy = sinon.stub().returns();
+            lib.init(aws);
+
             sinon.stub(lib, '_getToken').yieldsTo('cb', null, 'token');
             sinon.stub(lib, '_submitWithAnotherToken').yieldsTo('cb');
             sinon.stub(console, 'error');
@@ -300,6 +302,7 @@ describe('cloudwatch-integration', function () {
         var aws = {};
         beforeEach(function () {
             aws.putRetentionPolicy = sinon.stub().returns();
+            lib.init(aws);
         });
         it('only logs retention policy if given > 0', function () {
             lib._putRetentionPolicy({
@@ -332,6 +335,7 @@ describe('cloudwatch-integration', function () {
         beforeEach(function () {
             ensureGroupPresent = sinon.stub(lib, '_ensureGroupPresent');
             getStream = sinon.stub(lib, '_getStream');
+            lib.init(aws);
         });
 
         afterEach(function () {
@@ -426,6 +430,7 @@ describe('cloudwatch-integration', function () {
                 },
             };
             putRetentionPolicy = sinon.stub(lib, '_putRetentionPolicy');
+            lib.init(aws);
         });
 
         afterEach(function () {
@@ -436,10 +441,9 @@ describe('cloudwatch-integration', function () {
             putRetentionPolicy.resolves();
             const result = await lib._ensureGroupPresent({
                 ...ArgumentFactory.ensureGroupPresent(),
-                aws,
             });
             result.should.equal(true);
-            putRetentionPolicy.calledWith({...ArgumentFactory.ensureGroupPresent(), aws}).should.equal(true);
+            putRetentionPolicy.calledWith({...ArgumentFactory.ensureGroupPresent()}).should.equal(true);
         });
 
         it('creates a group if it is not present', async () => {
@@ -450,10 +454,9 @@ describe('cloudwatch-integration', function () {
 
             const isPresent = await lib._ensureGroupPresent({
                 ...ArgumentFactory.ensureGroupPresent(),
-                aws,
             });
 
-            putRetentionPolicy.calledWith({logGroupName: 'group', retentionInDays: 0, aws}).should.equal(true);
+            putRetentionPolicy.calledWith({logGroupName: 'group', retentionInDays: 0}).should.equal(true);
             isPresent.should.equal(true);
         });
 
@@ -507,6 +510,7 @@ describe('cloudwatch-integration', function () {
                     );
                 },
             };
+            lib.init(aws);
         });
 
         it('yields the stream we want', async () => {
@@ -623,6 +627,7 @@ describe('cloudwatch-integration', function () {
 
         beforeEach(function () {
             aws.putLogEvents = sinon.stub().yields();
+            lib.init(aws);
             sinon.stub(lib, '_getToken').yieldsTo('cb', null, 'new-token');
             sinon.stub(console, 'error');
         });
