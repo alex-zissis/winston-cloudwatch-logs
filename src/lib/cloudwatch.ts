@@ -7,11 +7,9 @@ const LIMITS = {
 // https://docs.aws.amazon.com/AmazonCloudWatchLogs/latest/APIReference/API_PutLogEvents.html
 const BASE_EVENT_SIZE_BYTES = 26;
 
-import {find} from 'lodash-es';
-import async from 'async';
 import {debug} from './utils.js';
-import {CloudWatchLogs, DescribeLogStreamsCommandOutput, PutLogEventsCommandOutput} from '@aws-sdk/client-cloudwatch-logs';
-import {LogCallback, LogEntry} from 'winston';
+import {CloudWatchLogs, LogStream} from '@aws-sdk/client-cloudwatch-logs';
+import {LogEntry} from 'winston';
 import {WinstonCloudWatchOptions} from '../WinstonCloudWatch.js';
 import {MessageTooBigError} from './errors/index.js';
 
@@ -21,13 +19,11 @@ export type LogEvent = {
     timestamp: number;
 };
 
-interface CloudWatchArgumentsBase<T = undefined> {
-    aws: CloudWatchLogs;
+interface CloudWatchArgumentsBase {
     logGroupName: string;
     logStreamName: string;
     retentionInDays: number;
     options: WinstonCloudWatchOptions;
-    cb: (err?: Error, data?: T) => void;
 }
 
 interface CloudWatchUploadArgs extends CloudWatchArgumentsBase {
@@ -45,34 +41,47 @@ interface CloudWatchArgumentsWithPayload extends CloudWatchArgumentsBase {
     payload: CloudWatchPayload;
 }
 
-interface CloudWatchSubmissionArgs extends Pick<CloudWatchArgumentsWithPayload, 'cb' | 'aws' | 'payload'> {
+interface CloudWatchSubmissionArgs extends Pick<CloudWatchArgumentsWithPayload, 'payload'> {
     times: number;
 }
 
 interface ICloudWatch {
-    upload: (args: CloudWatchUploadArgs) => void;
-    safeUpload: (args: CloudWatchUploadArgs) => void;
-    getToken: (args: CloudWatchArgumentsBase) => void;
-    submitWithAnotherToken: (args: CloudWatchArgumentsWithPayload) => void;
-    retrySubmit: (args: CloudWatchSubmissionArgs) => void;
-    ensureGroupPresent: (
-        args: Pick<CloudWatchArgumentsBase<boolean>, 'aws' | 'logGroupName' | 'retentionInDays' | 'cb'>
-    ) => void;
-    putRetentionPolicy: (args: Pick<CloudWatchArgumentsBase, 'aws' | 'logGroupName' | 'retentionInDays'>) => void;
-    getStream: (args: Pick<CloudWatchArgumentsBase, 'aws' | 'logGroupName' | 'logStreamName' | 'cb'>) => void;
+    aws: CloudWatchLogs;
 
-    previousKeyMapKey: (logGroupName: string, logStreamName: string) => string;
+    upload: (args: CloudWatchUploadArgs, cb: (err?: Error) => void) => void;
+    init: (aws: CloudWatchLogs) => void;
+
+    _safeUpload: (args: CloudWatchUploadArgs, cb: (err?: Error) => void) => Promise<void>;
+    _getToken: (args: CloudWatchArgumentsBase) => Promise<string>;
+    _submitWithAnotherToken: (args: CloudWatchArgumentsWithPayload) => Promise<void>;
+    _retrySubmit: (args: CloudWatchSubmissionArgs) => Promise<void>;
+    _ensureGroupPresent: (args: Pick<CloudWatchArgumentsBase, 'logGroupName' | 'retentionInDays'>) => Promise<boolean>;
+    _putRetentionPolicy: (args: Pick<CloudWatchArgumentsBase, 'logGroupName' | 'retentionInDays'>) => Promise<void>;
+    _getStream: (args: Pick<CloudWatchArgumentsBase, 'logGroupName' | 'logStreamName'>) => Promise<LogStream>;
+    _ignoreInProgress: (err: Error) => boolean;
+
+    _previousKeyMapKey: (logGroupName: string, logStreamName: string) => string;
     _postingEvents: object;
     _nextToken: object;
-
-    ignoreInProgress: (cb: LogCallback) => (err: Error, data: any) => void;
 }
 
 const CloudWatch: ICloudWatch = {
     _postingEvents: {},
     _nextToken: {},
 
-    upload: ({aws, logGroupName, logStreamName, logEvents, retentionInDays, options, cb}) => {
+    // lets KISS, and just ensure init has been run before we begin
+    // @ts-expect-error
+    aws: {},
+
+    init: (aws: CloudWatchLogs) => {
+        CloudWatch.aws = aws;
+    },
+
+    upload: ({logGroupName, logStreamName, logEvents, retentionInDays, options}, cb) => {
+        if (!CloudWatch.aws) {
+            cb(new Error('CloudWatch logs client was not found. Have you run `CloudWatch.init(client)`?'));
+        }
+
         debug('upload', logEvents);
 
         // trying to send a batch before the last completed
@@ -83,18 +92,16 @@ const CloudWatch: ICloudWatch = {
         }
 
         CloudWatch._postingEvents[logStreamName] = true;
-        CloudWatch.safeUpload({
-            aws,
+        CloudWatch._safeUpload({
             logGroupName,
             logStreamName,
             logEvents,
             retentionInDays,
             options,
-            cb: function (err) {
-                CloudWatch._postingEvents[logStreamName] = false;
-                return cb(err);
-            },
-        });
+        }, cb)
+            .then(() => cb(null))
+            .catch((e) => cb(e))
+            .finally(() => (CloudWatch._postingEvents[logStreamName] = false));
     },
 
     // safeUpload introduced after https://github.com/lazywithclass/winston-cloudwatch/issues/55
@@ -106,181 +113,188 @@ const CloudWatch: ICloudWatch = {
     // it will send both events and empty the array. Then, when the second call
     // go getToken() returns, without this check also here, it would attempt to send
     // an empty array, resulting in the InvalidParameterException.
-    safeUpload: ({aws, logGroupName, logStreamName, logEvents, retentionInDays, options, cb}) => {
+    _safeUpload: ({logGroupName, logStreamName, logEvents, retentionInDays, options}, cb) => {
         debug('safeupload', logEvents);
 
-        CloudWatch.getToken({
-            aws,
-            logGroupName,
-            logStreamName,
-            retentionInDays,
-            options,
-            cb: function (err, token) {
-                if (err) {
-                    debug('error getting token', err, true);
-                    return cb(err);
+        return new Promise(async (resolve, reject) => {
+            const token = await CloudWatch._getToken({
+                logGroupName,
+                logStreamName,
+                retentionInDays,
+                options,
+            }).catch((err) => {
+                debug('error getting token', err);
+                reject(err);
+            });
+
+
+            let entryIndex = 0;
+            let bytes = 0;
+            while (entryIndex < logEvents.length) {
+                const ev = logEvents[entryIndex];
+                // unit tests pass null elements
+                let evSize = ev ? Buffer.byteLength(ev.message, 'utf8') + BASE_EVENT_SIZE_BYTES : 0;
+                if (evSize > LIMITS.MAX_EVENT_MSG_SIZE_BYTES) {
+                    evSize = LIMITS.MAX_EVENT_MSG_SIZE_BYTES;
+                    ev.message = ev.message.substring(0, evSize);
+                    const msgTooBigErr = new MessageTooBigError(
+                        'Message Truncated because it exceeds the CloudWatch size limit'
+                    );
+                    msgTooBigErr.logEvent = ev;
+                    // callback to log the error, but continue executing, and send the truncated message
+                    cb(msgTooBigErr);
                 }
+                if (bytes + evSize > LIMITS.MAX_BATCH_SIZE_BYTES) break;
+                bytes += evSize;
+                entryIndex++;
+            }
 
-                var entryIndex = 0;
-                var bytes = 0;
-                while (entryIndex < logEvents.length) {
-                    var ev = logEvents[entryIndex];
-                    // unit tests pass null elements
-                    var evSize = ev ? Buffer.byteLength(ev.message, 'utf8') + BASE_EVENT_SIZE_BYTES : 0;
-                    if (evSize > LIMITS.MAX_EVENT_MSG_SIZE_BYTES) {
-                        evSize = LIMITS.MAX_EVENT_MSG_SIZE_BYTES;
-                        ev.message = ev.message.substring(0, evSize);
-                        const msgTooBigErr = new MessageTooBigError(
-                            'Message Truncated because it exceeds the CloudWatch size limit'
-                        );
-                        msgTooBigErr.logEvent = ev;
-                        cb(msgTooBigErr);
-                    }
-                    if (bytes + evSize > LIMITS.MAX_BATCH_SIZE_BYTES) break;
-                    bytes += evSize;
-                    entryIndex++;
-                }
+            const payload: CloudWatchPayload = {
+                logGroupName,
+                logStreamName,
+                logEvents: logEvents.splice(0, entryIndex),
+            };
 
-                const payload = {
-                    logGroupName,
-                    logStreamName,
-                    logEvents: logEvents.splice(0, entryIndex),
-                };
-
-                // @ts-ignore
-                if (token) payload.sequenceToken = token;
-
-                CloudWatch._postingEvents[logStreamName] = true;
-                aws.putLogEvents(payload, function (err: any, data: PutLogEventsCommandOutput) {
-                    debug('sent to aws, err: ', err, ' data: ', data);
-                    if (err) {
-                        // InvalidSequenceToken means we need to do a describe to get another token
-                        // also do the same if ResourceNotFound as that will result in the last token
-                        // for the group being set to null
-                        if (err.name === 'InvalidSequenceTokenException' || err.name === 'ResourceNotFoundException') {
-                            debug(err.name + ', retrying', true);
-                            CloudWatch.submitWithAnotherToken({
-                                aws,
-                                logGroupName,
-                                logStreamName,
-                                payload,
-                                retentionInDays,
-                                options,
-                                cb,
-                            });
-                        } else {
-                            debug('error during putLogEvents', err, true);
-                            CloudWatch.retrySubmit({aws, payload, times: 3, cb});
-                        }
-                    } else {
-                        debug('data', data)
-                        if (data && data.nextSequenceToken) {
-                            CloudWatch._nextToken[CloudWatch.previousKeyMapKey(logGroupName, logStreamName)] =
-                                data.nextSequenceToken;
-                        }
-
-                        CloudWatch._postingEvents[logStreamName] = false;
-                        cb();
-                    }
-                });
-            },
-        });
-    },
-
-    submitWithAnotherToken: ({aws, logGroupName, logStreamName, payload, retentionInDays, options, cb}) => {
-        CloudWatch._nextToken[CloudWatch.previousKeyMapKey(logGroupName, logStreamName)] = null;
-        CloudWatch.getToken({
-            aws,
-            logGroupName,
-            logStreamName,
-            retentionInDays,
-            options,
-            cb: function (err, token) {
+            if (token) {
+                debug('found token', token);
                 payload.sequenceToken = token;
-                aws.putLogEvents(payload, function (err) {
+            }
+
+            CloudWatch._postingEvents[logStreamName] = true;
+            CloudWatch.aws
+                .putLogEvents(payload)
+                .then((data) => {
+                    debug('sent to CloudWatch.aws,', ' data: ', data, true);
+                    if (data && data.nextSequenceToken) {
+                        CloudWatch._nextToken[CloudWatch._previousKeyMapKey(logGroupName, logStreamName)] =
+                            data.nextSequenceToken;
+                    }
+
                     CloudWatch._postingEvents[logStreamName] = false;
-                    cb(err);
+                    resolve();
+                })
+                .catch((err) => {
+                    debug('sent to CloudWatch.aws,', ' err: ', err, true);
+                    // InvalidSequenceToken means we need to do a describe to get another token
+                    // also do the same if ResourceNotFound as that will result in the last token
+                    // for the group being set to null
+                    if (err.name === 'InvalidSequenceTokenException' || err.name === 'ResourceNotFoundException') {
+                        debug(err.name + ', retrying', true);
+                        CloudWatch._submitWithAnotherToken({
+                            logGroupName,
+                            logStreamName,
+                            payload,
+                            retentionInDays,
+                            options,
+                        })
+                            .then(() => {
+                                resolve();
+                            })
+                            .catch(reject);
+                    } else {
+                        debug('error during putLogEvents', err, true);
+                        CloudWatch._retrySubmit({payload, times: 3}).then(resolve).catch(reject);
+                    }
                 });
-            },
         });
     },
 
-    retrySubmit: ({aws, payload, times, cb}) => {
+    _submitWithAnotherToken: ({logGroupName, logStreamName, payload, retentionInDays, options}) => {
+        CloudWatch._nextToken[CloudWatch._previousKeyMapKey(logGroupName, logStreamName)] = null;
+
+        return new Promise((resolve, reject) => {
+            CloudWatch._getToken({
+                logGroupName,
+                logStreamName,
+                retentionInDays,
+                options,
+            })
+                .then((token) => {
+                    payload.sequenceToken = token;
+                    CloudWatch.aws
+                        .putLogEvents(payload)
+                        .then(() => resolve())
+                        .catch(reject)
+                        .finally(() => (CloudWatch._postingEvents[logStreamName] = false));
+                })
+                .catch(reject);
+        });
+    },
+
+    _retrySubmit: ({payload, times}) => {
         debug('retrying to upload', times, 'more times');
-        aws.putLogEvents(payload, function (err) {
-            if (err && times > 0) {
-                CloudWatch.retrySubmit({aws, payload, times: times - 1, cb});
-            } else {
-                CloudWatch._postingEvents[payload.logStreamName] = false;
-                cb(err);
-            }
+        return new Promise((resolve, reject) => {
+            CloudWatch.aws
+                .putLogEvents(payload)
+                .then(() => {
+                    resolve();
+                })
+                .catch((err) => {
+                    if (times > 0) {
+                        CloudWatch._retrySubmit({payload, times: times - 1}).then(resolve).catch(reject);
+                    } else {
+                        reject(err);
+                    }
+                })
+                .finally(() => (CloudWatch._postingEvents[payload.logStreamName] = false));
         });
     },
 
-    getToken: ({aws, logGroupName, logStreamName, retentionInDays, options, cb}) => {
-        var existingNextToken = CloudWatch._nextToken[CloudWatch.previousKeyMapKey(logGroupName, logStreamName)];
-        if (existingNextToken != null) {
-            debug('using existing next token and assuming exists', existingNextToken);
-            cb(null, existingNextToken);
-            return;
-        }
+    _getToken: ({logGroupName, logStreamName, retentionInDays, options}) => {
+        const existingNextToken = CloudWatch._nextToken[CloudWatch._previousKeyMapKey(logGroupName, logStreamName)];
 
-        const calls =
-            options.ensureLogGroup !== false
-                ? [
-                      CloudWatch.ensureGroupPresent.bind(null, {aws, logGroupName, retentionInDays, cb}),
-                      CloudWatch.getStream.bind(null, {aws, logGroupName, logStreamName, cb}),
-                  ]
-                : [CloudWatch.getStream.bind(null, {aws, logGroupName, logStreamName, cb})];
+        return new Promise(async (resolve, reject) => {
+            if (existingNextToken) {
+                debug('using existing next token and assuming exists', existingNextToken);
+                resolve(existingNextToken);
+                return;
+            }
 
-        async.series(calls, function (err, resources) {
-            const groupPresent = calls.length > 1 ? resources[0] : true;
-            const stream: any = calls.length === 1 ? resources[0] : resources[1];
-            if (groupPresent && stream) {
+            if (options.ensureLogGroup !== false) {
+                const res = await CloudWatch._ensureGroupPresent({logGroupName, retentionInDays}).catch(reject);
+                if (!res) {
+                    return;
+                }
+            }
+
+            CloudWatch._getStream({logGroupName, logStreamName}).then(stream => {
                 debug('token found', stream.uploadSequenceToken);
-                cb(err, stream.uploadSequenceToken);
-            } else {
-                debug('token not found', err);
-                cb(err);
-            }
+                resolve(stream.uploadSequenceToken);
+            }).catch(reject);
         });
     },
 
-    previousKeyMapKey: (group, stream) => {
+    _previousKeyMapKey: (group, stream) => {
         return group + ':' + stream;
     },
 
-    ensureGroupPresent: ({aws, logGroupName, retentionInDays, cb}) => {
-        debug('ensure group present');
-        const params = {logGroupName};
-        aws.describeLogStreams(params, (err: any, data: DescribeLogStreamsCommandOutput) => {
-            // TODO we should cb(err, false) if there's an error?
-            if (err && err.name == 'ResourceNotFoundException') {
-                debug('create group');
-                return aws.createLogGroup(
-                    params,
-                    CloudWatch.ignoreInProgress(function (err) {
-                        if (!err) CloudWatch.putRetentionPolicy({aws, logGroupName, retentionInDays});
-                        cb(err, err ? false : true);
-                    })
-                );
-            } else {
-                debug('group found')
-                CloudWatch.putRetentionPolicy({aws, logGroupName, retentionInDays});
-                cb(err, true);
-            }
+    _ensureGroupPresent: async ({logGroupName, retentionInDays}) => {
+        return new Promise(async (resolve, reject) => {
+            await CloudWatch.aws.describeLogStreams({logGroupName}).catch(async (e) => {
+                if (e.name === 'ResourceNotFoundException') {
+                    CloudWatch.aws
+                        .createLogGroup({logGroupName})
+                        .then(() => {
+                            CloudWatch._putRetentionPolicy({logGroupName, retentionInDays})
+                                .then(() => resolve(true))
+                                .catch(reject);
+                        })
+                        .catch(reject);
+                } else {
+                    reject(e);
+                }
+            });
+            CloudWatch._putRetentionPolicy({logGroupName, retentionInDays})
+                .then(() => resolve(true))
+                .catch(reject);
         });
     },
 
-    putRetentionPolicy: ({aws, logGroupName, retentionInDays}) => {
-        const params = {
-            logGroupName,
-            retentionInDays,
-        };
+    _putRetentionPolicy: async ({logGroupName, retentionInDays}) => {
         if (retentionInDays > 0) {
-            debug('setting retention policy for "' + logGroupName + '" to ' + retentionInDays + ' days');
-            aws.putRetentionPolicy(params, function (err, data) {
-                if (err)
+            await CloudWatch.aws
+                .putRetentionPolicy({logGroupName, retentionInDays})
+                .catch((err: Error) =>
                     console.error(
                         'failed to set retention policy for ' +
                             logGroupName +
@@ -288,52 +302,54 @@ const CloudWatch: ICloudWatch = {
                             retentionInDays +
                             ' days due to ' +
                             err.stack
-                    );
-            });
+                    )
+                );
         }
     },
 
-    getStream: ({aws, logGroupName, logStreamName, cb}) => {
-        const params = {
-            logGroupName,
-            logStreamNamePrefix: logStreamName,
-        };
+    _getStream: ({logGroupName, logStreamName}) => {
+        return new Promise(async (resolve, reject) => {
+            const params = {
+                logGroupName,
+                logStreamNamePrefix: logStreamName,
+            };
 
-        aws.describeLogStreams(params, function (err, data) {
-            debug('ensure stream present', err, data);
-            if (err) return cb(err);
+            CloudWatch.aws
+                .describeLogStreams(params)
+                .then(async (response) => {
+                    let stream = response.logStreams?.find((stream) => stream.logStreamName === logStreamName);
+                    if (!stream) {
+                        debug('creating stream');
+                        let shouldResolve = true;
+                        await CloudWatch.aws.createLogStream({logGroupName, logStreamName}).catch((e) => {
+                            if (!CloudWatch._ignoreInProgress(e)) {
+                                shouldResolve = false;
+                                reject(e);
+                            }
+                        });
 
-            var stream = find(data.logStreams, function (stream) {
-                return stream.logStreamName === logStreamName;
-            });
-
-            if (!stream) {
-                debug('create stream');
-                aws.createLogStream(
-                    {
-                        logGroupName,
-                        logStreamName,
-                    },
-                    CloudWatch.ignoreInProgress(function (err) {
-                        if (err) return cb(err);
-                        CloudWatch.getStream({aws, logGroupName, logStreamName, cb});
-                    })
-                );
-            } else {
-                cb(null, stream);
-            }
+                        if (shouldResolve) {
+                            CloudWatch._getStream({logGroupName, logStreamName})
+                                .then((response) => {
+                                    resolve(response);
+                                })
+                                .catch((e) => reject(e));
+                        }
+                    } else {
+                        resolve(stream);
+                    }
+                })
+                .catch(reject);
         });
     },
 
-    ignoreInProgress: (cb) => {
-        return function (err, data) {
-            if (err && (err.name == 'OperationAbortedException' || err.name == 'ResourceAlreadyExistsException')) {
-                debug('ignore operation in progress', err.message);
-                cb(null, data);
-            } else {
-                cb(err, data);
-            }
-        };
+    _ignoreInProgress: (err: Error) => {
+        if (err.name == 'OperationAbortedException' || err.name == 'ResourceAlreadyExistsException') {
+            debug('ignore operation in progress', err.message);
+            return true;
+        }
+
+        return false;
     },
 };
 

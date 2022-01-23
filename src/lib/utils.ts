@@ -11,7 +11,13 @@ const handleErrorObject = (key: string, value: any) => {
     return value;
 };
 
-const stringify = (o: object) => safeStringify(o, handleErrorObject, '  ');
+const stringify = (o: object) => {
+    try {
+        return JSON.stringify(o, handleErrorObject, '  ');
+    } catch(e) {
+        return safeStringify(o, handleErrorObject, '  ');
+    }
+}
 
 const debug = (...args: any[]) => {
     if (!process.env.WINSTON_CLOUDWATCH_DEBUG) return;

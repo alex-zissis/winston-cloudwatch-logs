@@ -3,7 +3,7 @@ import TransportStream from 'winston-transport';
 import {CloudWatchLogs, CloudWatchLogsClientConfig} from '@aws-sdk/client-cloudwatch-logs';
 import {NodeHttpHandler} from '@aws-sdk/node-http-handler';
 import ProxyAgent from 'proxy-agent';
-import {isEmpty, isError} from 'lodash-es';
+import {isEmpty, isError} from './lib/nodash/index.js';
 import {debug, stringify} from './lib/utils.js';
 import CloudWatch, {LogEvent, MessageFormatFunc} from './lib/cloudwatch.js';
 
@@ -11,8 +11,8 @@ const DefaultFlushTimeoutMs = 10000;
 
 export interface WinstonCloudWatchOptions extends winston.transport.TransportStreamOptions {
     name?: string;
-    logGroupName: string;
-    logStreamName: string;
+    logGroupName: string | (() => string);
+    logStreamName: string | (() => string);
     retentionInDays?: number;
 
     awsAccessKeyId?: string;
@@ -86,10 +86,11 @@ class WinstonCloudWatch extends TransportStream {
         this.logEvents = [];
         this.errorHandler = errorHandler;
 
-        this.cloudwatchlogs = cloudWatchLogs ?? this.createCloudwatchLogsInstance();
+        this.cloudwatchlogs = cloudWatchLogs ?? this.#createCloudwatchLogsInstance();
+        CloudWatch.init(this.cloudwatchlogs);
     }
 
-    createCloudwatchLogsInstance() {
+    #createCloudwatchLogsInstance() {
         let config: CloudWatchLogsClientConfig = {};
         const {awsAccessKeyId, awsRegion, awsSecretKey, awsOptions} = this.options;
 
@@ -154,20 +155,18 @@ class WinstonCloudWatch extends TransportStream {
         this.submit(callback);
     }
 
-    submit(cb: (err?: Error, data?: boolean) => void) {
+    submit(cb: (err?: Error) => void) {
         if (isEmpty(this.logEvents)) {
             return cb();
         }
 
         CloudWatch.upload({
-            aws: this.cloudwatchlogs,
             logGroupName: this.logGroupName,
             logStreamName: this.logStreamName,
             logEvents: this.logEvents,
             retentionInDays: this.retentionInDays,
             options: this.options,
-            cb,
-        });
+        }, cb);
     }
 
     kthxbye(cb: (err?: Error) => void) {

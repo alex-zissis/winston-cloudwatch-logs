@@ -6,6 +6,7 @@
         "outDir": "dist/",
         "esModuleInterop": true,
         "resolveJsonModule": true,
-        "typeRoots": ["./src/types", "./node_modules/@types"]
+        "typeRoots": ["./src/types", "./node_modules/@types"],
+        "declaration": true
     },
 }
