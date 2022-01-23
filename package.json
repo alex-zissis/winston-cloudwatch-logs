@@ -1,6 +1,6 @@
 {
     "name": "winston-cloudwatch-logs",
-    "version": "0.0.4",
+    "version": "0.0.5",
     "description": "A rewrite of the popular winston-cloudwatch package. Designed to be smaller, more effieicent, more modern and fully API compatible with the original package.",
     "keywords": [
         "amazon",
@@ -24,13 +24,13 @@
         }
     },
     "peerDependencies": {
-        "proxy-agent": "^5.0.0",
         "winston": "^3.4.0"
     },
     "dependencies": {
         "@aws-sdk/client-cloudwatch-logs": "^3.47.0",
         "@aws-sdk/node-http-handler": "^3.47.0",
         "fast-safe-stringify": "^2.1.1",
+        "proxy-agent": "^5.0.0",
         "winston-transport": "^4.4.2"
     },
     "devDependencies": {
