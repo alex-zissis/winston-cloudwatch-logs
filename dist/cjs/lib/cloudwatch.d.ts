@@ -6,12 +6,11 @@ export declare type LogEvent = {
     message: string;
     timestamp: number;
 };
-interface CloudWatchArgumentsBase<T = undefined> {
+interface CloudWatchArgumentsBase {
     logGroupName: string;
     logStreamName: string;
     retentionInDays: number;
     options: WinstonCloudWatchOptions;
-    cb: (err?: Error, data?: T) => void;
 }
 interface CloudWatchUploadArgs extends CloudWatchArgumentsBase {
     logEvents: LogEvent[];
@@ -25,24 +24,24 @@ interface CloudWatchPayload {
 interface CloudWatchArgumentsWithPayload extends CloudWatchArgumentsBase {
     payload: CloudWatchPayload;
 }
-interface CloudWatchSubmissionArgs extends Pick<CloudWatchArgumentsWithPayload, 'cb' | 'payload'> {
+interface CloudWatchSubmissionArgs extends Pick<CloudWatchArgumentsWithPayload, 'payload'> {
     times: number;
 }
 interface ICloudWatch {
     aws: CloudWatchLogs;
-    upload: (args: CloudWatchUploadArgs) => void;
+    upload: (args: CloudWatchUploadArgs, cb: (err?: Error) => void) => void;
     init: (aws: CloudWatchLogs) => void;
-    _safeUpload: (args: CloudWatchUploadArgs) => void;
-    _getToken: (args: CloudWatchArgumentsBase<string>) => void;
-    _submitWithAnotherToken: (args: CloudWatchArgumentsWithPayload) => void;
-    _retrySubmit: (args: CloudWatchSubmissionArgs) => void;
+    _safeUpload: (args: CloudWatchUploadArgs, cb: (err?: Error) => void) => Promise<void>;
+    _getToken: (args: CloudWatchArgumentsBase) => Promise<string>;
+    _submitWithAnotherToken: (args: CloudWatchArgumentsWithPayload) => Promise<void>;
+    _retrySubmit: (args: CloudWatchSubmissionArgs) => Promise<void>;
+    _ensureGroupPresent: (args: Pick<CloudWatchArgumentsBase, 'logGroupName' | 'retentionInDays'>) => Promise<boolean>;
+    _putRetentionPolicy: (args: Pick<CloudWatchArgumentsBase, 'logGroupName' | 'retentionInDays'>) => Promise<void>;
+    _getStream: (args: Pick<CloudWatchArgumentsBase, 'logGroupName' | 'logStreamName'>) => Promise<LogStream>;
+    _ignoreInProgress: (err: Error) => boolean;
     _previousKeyMapKey: (logGroupName: string, logStreamName: string) => string;
     _postingEvents: object;
     _nextToken: object;
-    _ensureGroupPresent: (args: Pick<CloudWatchArgumentsBase<boolean>, 'logGroupName' | 'retentionInDays'>) => Promise<boolean>;
-    _putRetentionPolicy: (args: Pick<CloudWatchArgumentsBase<boolean>, 'logGroupName' | 'retentionInDays'>) => Promise<void>;
-    _getStream: (args: Pick<CloudWatchArgumentsBase<LogStream>, 'logGroupName' | 'logStreamName'>) => Promise<LogStream>;
-    _ignoreInProgress: (err: Error) => boolean;
 }
 declare const CloudWatch: ICloudWatch;
 export default CloudWatch;

@@ -99,8 +99,7 @@ class WinstonCloudWatch extends winston_transport_1.default {
             logEvents: this.logEvents,
             retentionInDays: this.retentionInDays,
             options: this.options,
-            cb,
-        });
+        }, cb);
     }
     kthxbye(cb) {
         (0, utils_js_1.debug)('clearing interval');

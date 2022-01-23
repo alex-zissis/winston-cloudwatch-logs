@@ -37,12 +37,12 @@ describe('cloudwatch-integration', function () {
         var aws = {};
 
         beforeEach(function () {
-            aws.putLogEvents = sinon.stub().yields();
-            aws.putRetentionPolicy = sinon.stub().returns();
+            aws.putLogEvents = sinon.stub().resolves({});
+            aws.putRetentionPolicy = sinon.stub().resolves();
             lib.init(aws);
 
-            sinon.stub(lib, '_getToken').yieldsTo('cb', null, 'token');
-            sinon.stub(lib, '_submitWithAnotherToken').yieldsTo('cb');
+            sinon.stub(lib, '_getToken').resolves('token');
+            sinon.stub(lib, '_submitWithAnotherToken').resolves();
             sinon.stub(console, 'error');
         });
 
@@ -54,56 +54,60 @@ describe('cloudwatch-integration', function () {
         });
 
         it('ignores upload calls if putLogEvents already in progress', function (done) {
-            (1).should.equal(1);
-
             const events = [{message: 'test message', timestamp: new Date().toISOString()}];
-            aws.putLogEvents.onFirstCall().returns(); // Don't call call back to simulate ongoing request.
-            aws.putLogEvents.onSecondCall().yields();
-            lib.upload({
-                ...ArgumentFactory.upload(),
 
-                logEvents: events,
-            });
-            lib.upload({
-                ...ArgumentFactory.upload({
-                    cb: function () {
-                        // The second upload call should get ignored
-                        aws.putLogEvents.calledOnce.should.equal(true);
-                        lib._postingEvents['stream'] = false; // reset
-                        done();
-                    },
-                }),
+            lib.upload(
+                {
+                    ...ArgumentFactory.upload(),
+                    logEvents: events,
+                },
+                function () {
+                    // The second upload call should get ignored
+                    aws.putLogEvents.calledOnce.should.equal(true);
+                    lib._postingEvents['stream'] = false; // reset
+                    done();
+                }
+            );
 
-                logEvents: events,
-            });
+            lib.upload(
+                {
+                    ...ArgumentFactory.upload({}),
+                    logEvents: events,
+                },
+                function () {
+                    aws.putLogEvents.notCalled.should.equal(true);
+                }
+            );
         });
 
         it('ignores upload calls if getToken already in progress', function (done) {
             const events = [{message: 'test message', timestamp: new Date().toISOString()}];
             lib._getToken.onFirstCall().returns(); // Don't call call back to simulate ongoing token request.
-            lib._getToken.onSecondCall().yieldsTo('cb', null, 'token');
+            lib._getToken.onSecondCall().resolves('token');
             lib.upload({
                 ...ArgumentFactory.upload(),
 
                 logEvents: events,
             });
-            lib.upload({
-                ...ArgumentFactory.upload(),
+            lib.upload(
+                {
+                    ...ArgumentFactory.upload(),
 
-                logEvents: events,
-                cb: function () {
+                    logEvents: events,
+                },
+                function () {
                     // The second upload call should get ignored
                     lib._getToken.calledOnce.should.equal(true);
                     lib._postingEvents['stream'] = false; // reset
                     done();
-                },
-            });
+                }
+            );
         });
 
         it('not ignores upload calls if getToken already in progress for another stream', function (done) {
             const events = [{message: 'test message', timestamp: new Date().toISOString()}];
             lib._getToken.onFirstCall().returns(); // Don't call call back to simulate ongoing token request.
-            lib._getToken.onSecondCall().yieldsTo('cb', null, 'token');
+            lib._getToken.onSecondCall().resolves('token');
             lib.upload({
                 ...ArgumentFactory.upload(),
 
@@ -111,16 +115,18 @@ describe('cloudwatch-integration', function () {
                 logStreamName: 'stream1',
             });
 
-            lib.upload({
-                ...ArgumentFactory.upload(),
+            lib.upload(
+                {
+                    ...ArgumentFactory.upload(),
 
-                logEvents: events,
-                logStreamName: 'stream2',
-                cb: function () {
+                    logEvents: events,
+                    logStreamName: 'stream2',
+                },
+                function () {
                     lib._getToken.calledTwice.should.equal(true);
                     done();
-                },
-            });
+                }
+            );
 
             lib._postingEvents['stream1'] = false; // reset
             lib._postingEvents['stream2'] = false; // reset
@@ -130,11 +136,13 @@ describe('cloudwatch-integration', function () {
             var BIG_MSG_LEN = 300000;
             const events = [{message: new Array(BIG_MSG_LEN).join('A'), timestamp: new Date().toISOString()}];
             var errCalled = false;
-            lib.upload({
-                ...ArgumentFactory.upload(),
+            lib.upload(
+                {
+                    ...ArgumentFactory.upload(),
 
-                logEvents: events,
-                cb: function (err) {
+                    logEvents: events,
+                },
+                function (err) {
                     if (err) {
                         errCalled = true;
                         return;
@@ -143,8 +151,8 @@ describe('cloudwatch-integration', function () {
                     aws.putLogEvents.calledOnce.should.equal(true);
                     aws.putLogEvents.args[0][0].logEvents[0].message.length.should.be.lessThan(BIG_MSG_LEN); // Truncated
                     done();
-                },
-            });
+                }
+            );
         });
 
         it('batches messages so as not to exceed CW limits', function (done) {
@@ -157,157 +165,172 @@ describe('cloudwatch-integration', function () {
                 {message: bigMessage, timestamp: new Date().toISOString()},
                 {message: bigMessage, timestamp: new Date().toISOString()},
             ];
-            lib.upload({
-                ...ArgumentFactory.upload(),
+            lib.upload(
+                {
+                    ...ArgumentFactory.upload(),
 
-                logEvents: events,
-                cb: function (err) {
+                    logEvents: events,
+                },
+                function (err) {
                     aws.putLogEvents.calledOnce.should.equal(true);
                     aws.putLogEvents.args[0][0].logEvents.length.should.equal(3); // First Batch
                     // Now, finish.
-                    lib.upload({
-                        ...ArgumentFactory.upload(),
+                    lib.upload(
+                        {
+                            ...ArgumentFactory.upload(),
 
-                        logEvents: events,
-                        cb: function (err) {
+                            logEvents: events,
+                        },
+                        function (err) {
                             aws.putLogEvents.args[1][0].logEvents.length.should.equal(2); // Second Batch
                             done();
-                        },
-                    });
-                },
-            });
+                        }
+                    );
+                }
+            );
         });
 
         it('puts log events', function (done) {
-            lib.upload({
-                ...ArgumentFactory.upload(),
-                logEvents: Array(20),
-
-                cb: function () {
+            lib.upload(
+                {
+                    ...ArgumentFactory.upload(),
+                    logEvents: Array(20),
+                },
+                function () {
                     aws.putLogEvents.calledOnce.should.equal(true);
                     aws.putLogEvents.args[0][0].logGroupName.should.equal('group');
                     aws.putLogEvents.args[0][0].logStreamName.should.equal('stream');
                     aws.putLogEvents.args[0][0].logEvents.length.should.equal(20);
                     aws.putLogEvents.args[0][0].sequenceToken.should.equal('token');
                     done();
-                },
-            });
+                }
+            );
         });
 
         it('adds token to the payload only if it exists', function (done) {
-            lib._getToken.yieldsTo('cb', null);
-            lib.upload({
-                ...ArgumentFactory.upload(),
-                logEvents: Array(20),
-
-                cb: function () {
+            lib._getToken.resolves();
+            lib.upload(
+                {
+                    ...ArgumentFactory.upload(),
+                    logEvents: Array(20),
+                },
+                function () {
                     aws.putLogEvents.calledOnce.should.equal(true);
                     aws.putLogEvents.args[0][0].logGroupName.should.equal('group');
                     aws.putLogEvents.args[0][0].logStreamName.should.equal('stream');
                     aws.putLogEvents.args[0][0].logEvents.length.should.equal(20);
                     should.not.exist(aws.putLogEvents.args[0][0].sequenceToken);
                     done();
-                },
-            });
+                }
+            );
         });
 
         it('does not put if events are empty', function (done) {
-            lib.upload({
-                ...ArgumentFactory.upload(),
+            lib.upload(
+                {
+                    ...ArgumentFactory.upload(),
 
-                logEvents: [],
-                cb: function () {
+                    logEvents: [],
+                },
+                function () {
                     aws.putLogEvents.called.should.equal(false);
                     done();
-                },
-            });
+                }
+            );
         });
 
         it('errors if getting the token errors', function (done) {
-            lib._getToken.yieldsTo('cb', 'err');
-            lib.upload({
-                ...ArgumentFactory.upload(),
+            lib._getToken.rejects('err');
+            lib.upload(
+                {
+                    ...ArgumentFactory.upload(),
 
-                logEvents: Array(20),
-
-                cb: function (err) {
-                    err.should.equal('err');
-                    done();
+                    logEvents: Array(20),
                 },
-            });
+                function (err) {
+                    err.name.should.equal('err');
+                    done();
+                }
+            );
         });
 
         it('errors if putting log events errors', function (done) {
-            aws.putLogEvents.callsArgWith(1, 'err');
+            aws.putLogEvents.rejects('err');
 
-            lib.upload({
-                ...ArgumentFactory.upload(),
+            lib.upload(
+                {
+                    ...ArgumentFactory.upload(),
 
-                logEvents: Array(20),
-
-                cb: function (err) {
-                    err.should.equal('err');
-                    done();
+                    logEvents: Array(20),
                 },
-            });
+                function (err) {
+                    err.name.should.equal('err');
+                    done();
+                }
+            );
         });
 
         it('gets another token if InvalidSequenceTokenException', function (done) {
-            aws.putLogEvents.callsArgWith(1, {name: 'InvalidSequenceTokenException'});
-            lib.upload({
-                ...ArgumentFactory.upload(),
+            aws.putLogEvents.rejects({name: 'InvalidSequenceTokenException'});
+            lib.upload(
+                {
+                    ...ArgumentFactory.upload(),
 
-                logEvents: Array(20),
-                cb: function (err) {
+                    logEvents: Array(20),
+                },
+                function (err) {
                     lib._submitWithAnotherToken.calledOnce.should.equal(true);
                     done();
-                },
-            });
+                }
+            );
         });
 
         it('gets another token if ResourceNotFoundException', function (done) {
-            aws.putLogEvents.callsArgWith(1, {name: 'InvalidSequenceTokenException'});
-            lib.upload({
-                ...ArgumentFactory.upload(),
+            aws.putLogEvents.rejects({name: 'InvalidSequenceTokenException'});
+            lib.upload(
+                {
+                    ...ArgumentFactory.upload(),
 
-                logEvents: Array(20),
-                cb: function (err) {
+                    logEvents: Array(20),
+                },
+                function (err) {
                     lib._submitWithAnotherToken.calledOnce.should.equal(true);
                     done();
-                },
-            });
+                }
+            );
         });
 
         it('nextToken is saved when available', function (done) {
             var nextSequenceToken = 'abc123';
-            aws.putLogEvents.callsArgWith(1, null, {nextSequenceToken: nextSequenceToken});
-            lib.upload({
-                ...ArgumentFactory.upload(),
+            aws.putLogEvents.resolves({nextSequenceToken: nextSequenceToken});
+            lib.upload(
+                {
+                    ...ArgumentFactory.upload(),
 
-                logEvents: Array(20),
-
-                cb: function () {
+                    logEvents: Array(20),
+                },
+                function () {
                     sinon.assert.match(lib._nextToken, {'group:stream': nextSequenceToken});
                     done();
-                },
-            });
+                }
+            );
         });
     });
 
     describe('putRetentionPolicy', function () {
         var aws = {};
         beforeEach(function () {
-            aws.putRetentionPolicy = sinon.stub().returns();
+            aws.putRetentionPolicy = sinon.stub().resolves();
             lib.init(aws);
         });
-        it('only logs retention policy if given > 0', function () {
-            lib._putRetentionPolicy({
+        it('only logs retention policy if given > 0', async () => {
+            await lib._putRetentionPolicy({
                 ...ArgumentFactory.putRetentionPolicy({logEvents: 'group', retentionInDays: 1}),
             });
             aws.putRetentionPolicy.calledOnce.should.equal(true);
         });
-        it('doesnt logs retention policy if given = 0', function () {
-            lib._putRetentionPolicy({
+        it('doesnt logs retention policy if given = 0', async () => {
+            await lib._putRetentionPolicy({
                 ...ArgumentFactory.putRetentionPolicy({logEvents: 'group', retentionInDays: 0}),
             });
             aws.putRetentionPolicy.calledOnce.should.equal(false);
@@ -337,39 +360,34 @@ describe('cloudwatch-integration', function () {
             lib._getStream.restore();
         });
 
-        it('ensures group and stream are present if no nextToken for group/stream', function (done) {
+        it('ensures group and stream are present if no nextToken for group/stream', async () => {
             ensureGroupPresent.resolves(true);
             getStream.resolves(streamResponse);
 
-            lib._getToken({
+            const token = await lib._getToken({
                 ...ArgumentFactory.getToken(),
 
                 options: {
                     ensureGroupPresent: true,
                 },
-                cb: function () {
-                    ensureGroupPresent.calledOnce.should.equal(true);
-                    getStream.calledOnce.should.equal(true);
-                    done();
-                },
             });
+
+            ensureGroupPresent.calledOnce.should.equal(true);
+            getStream.calledOnce.should.equal(true);
         });
 
-        it('yields token when group and stream are present', function (done) {
+        it('yields token when group and stream are present', async () => {
             ensureGroupPresent.resolves(true);
             getStream.resolves({...streamResponse, uploadSequenceToken: 'token'});
-            lib._getToken({
+            const token = await lib._getToken({
                 ...ArgumentFactory.getToken(),
 
                 options: {
                     ensureGroupPresent: true,
                 },
-                cb: function (err, token) {
-                    should.not.exist(err);
-                    token.should.equal('token');
-                    done();
-                },
             });
+
+            token.should.equal('token');
         });
 
         it('errors when ensuring group errors', function (done) {
@@ -377,11 +395,9 @@ describe('cloudwatch-integration', function () {
 
             lib._getToken({
                 ...ArgumentFactory.getToken(),
-
-                cb: function (err) {
-                    err.name.should.equal('err');
-                    done();
-                },
+            }).catch((err) => {
+                err.name.should.equal('err');
+                done();
             });
         });
 
@@ -391,25 +407,20 @@ describe('cloudwatch-integration', function () {
 
             lib._getToken({
                 ...ArgumentFactory.getToken(),
-
-                cb: function (err) {
-                    err.name.should.equal('err');
-                    done();
-                },
+            }).catch((err) => {
+                err.name.should.equal('err');
+                done();
             });
         });
 
-        it('does not ensure group and stream are present if nextToken for group/stream', function (done) {
+        it('does not ensure group and stream are present if nextToken for group/stream', async () => {
             lib._nextToken = {'group:stream': 'test123'};
-            lib._getToken({
+            const token = await lib._getToken({
                 ...ArgumentFactory.getToken(),
-
-                cb: function () {
-                    ensureGroupPresent.notCalled.should.equal(true);
-                    getStream.notCalled.should.equal(true);
-                    done();
-                },
             });
+
+            ensureGroupPresent.notCalled.should.equal(true);
+            getStream.notCalled.should.equal(true);
         });
     });
 
@@ -473,12 +484,10 @@ describe('cloudwatch-integration', function () {
 
             lib._ensureGroupPresent({
                 ...ArgumentFactory.ensureGroupPresent(),
-            })
-                .then((res) => console.log({res}))
-                .catch((err) => {
-                    err.name.should.equal('err');
-                    done();
-                });
+            }).catch((err) => {
+                err.name.should.equal('err');
+                done();
+            });
         });
     });
 
@@ -613,9 +622,9 @@ describe('cloudwatch-integration', function () {
         var aws = {};
 
         beforeEach(function () {
-            aws.putLogEvents = sinon.stub().yields();
+            aws.putLogEvents = sinon.stub().resolves();
             lib.init(aws);
-            sinon.stub(lib, '_getToken').yieldsTo('cb', null, 'new-token');
+            sinon.stub(lib, '_getToken').resolves('new-token');
             sinon.stub(console, 'error');
         });
 
@@ -624,15 +633,13 @@ describe('cloudwatch-integration', function () {
             console.error.restore();
         });
 
-        it('gets a token then resubmits', function (done) {
-            lib._submitWithAnotherToken({
+        it('gets a token then resubmits', async () => {
+            await lib._submitWithAnotherToken({
                 ...ArgumentFactory.submitWithAnotherToken(),
-                cb: function () {
-                    aws.putLogEvents.calledOnce.should.equal(true);
-                    aws.putLogEvents.args[0][0].sequenceToken.should.equal('new-token');
-                    done();
-                },
             });
+
+            aws.putLogEvents.calledOnce.should.equal(true);
+            aws.putLogEvents.args[0][0].sequenceToken.should.equal('new-token');
         });
     });
 });

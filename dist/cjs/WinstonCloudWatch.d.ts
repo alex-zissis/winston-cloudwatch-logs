@@ -38,7 +38,7 @@ declare class WinstonCloudWatch extends TransportStream {
     constructor(options: WinstonCloudWatchOptions);
     add(log: LogEntry): void;
     log(info: LogEntry, callback: (err?: Error, data?: boolean) => void): void;
-    submit(cb: (err?: Error, data?: boolean) => void): void;
+    submit(cb: (err?: Error) => void): void;
     kthxbye(cb: (err?: Error) => void): void;
 }
 export default WinstonCloudWatch;

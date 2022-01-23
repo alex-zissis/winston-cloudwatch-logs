@@ -155,7 +155,7 @@ class WinstonCloudWatch extends TransportStream {
         this.submit(callback);
     }
 
-    submit(cb: (err?: Error, data?: boolean) => void) {
+    submit(cb: (err?: Error) => void) {
         if (isEmpty(this.logEvents)) {
             return cb();
         }
@@ -166,8 +166,7 @@ class WinstonCloudWatch extends TransportStream {
             logEvents: this.logEvents,
             retentionInDays: this.retentionInDays,
             options: this.options,
-            cb,
-        });
+        }, cb);
     }
 
     kthxbye(cb: (err?: Error) => void) {

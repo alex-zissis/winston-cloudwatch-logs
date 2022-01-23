@@ -109,8 +109,7 @@ class WinstonCloudWatch extends TransportStream {
             logEvents: this.logEvents,
             retentionInDays: this.retentionInDays,
             options: this.options,
-            cb,
-        });
+        }, cb);
     }
     kthxbye(cb) {
         debug('clearing interval');

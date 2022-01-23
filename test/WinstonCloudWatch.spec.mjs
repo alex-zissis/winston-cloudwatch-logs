@@ -9,7 +9,7 @@ describe('WinstonCloudWatch', function () {
         },
     };
     var stubbedCloudwatchIntegration = {
-        upload: sinon.spy(function ({groupName, streamName, logEvents, retention, options, cb}) {
+        upload: sinon.spy(function ({groupName, streamName, logEvents, retention, options}, cb) {
             this.lastLoggedEvents = logEvents.splice(0, 20);
             cb();
         }),
@@ -70,7 +70,6 @@ describe('WinstonCloudWatch', function () {
             };
             var transport = new WinstonCloudWatch(options);
             const {requestHandler} = transport.cloudwatchlogs.fakeOptions;
-            console.log(requestHandler)
             requestHandler.config.httpsAgent.should.exist;
             requestHandler.config.httpsAgent.proxyUri.should.equal('http://test.com');
             requestHandler.config.httpAgent.should.exist;
@@ -181,7 +180,7 @@ describe('WinstonCloudWatch', function () {
 
         describe('handles error', function () {
             beforeEach(function () {
-                stubbedCloudwatchIntegration.upload = sinon.stub().yieldsTo('cb', 'ERROR');
+                stubbedCloudwatchIntegration.upload = sinon.stub().yields('ERROR');
                 // mockery.registerMock('./lib/cloudwatch-integration', stubbedCloudwatchIntegration);
                 sinon.stub(console, 'error');
             });
